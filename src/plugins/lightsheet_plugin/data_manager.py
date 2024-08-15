@@ -10,7 +10,7 @@ Created on Mon Jul 29 14:27:19 2024
 import numpy as np
 import logging
 from data_generation import DataGenerator
-from file_operations import ImporterFactory
+from lightsheet_file_operations import ImporterFactory
 from data_properties_dialog import DataPropertiesDialog
 from PyQt5.QtWidgets import QApplication
 

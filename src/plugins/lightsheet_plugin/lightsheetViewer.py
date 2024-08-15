@@ -30,7 +30,7 @@ from PyQt5.QtCore import pyqtSlot
 from data_generation import DataGenerator, DataManager
 from blob_detection import BlobAnalyzer
 from biological_simulation import BiologicalSimulator
-from file_operations import ImporterFactory
+from lightsheet_file_operations import ImporterFactory
 #from volume_processor import VolumeProcessor
 from biological_simulation import EnhancedBiologicalSimulator, Cell, CellularEnvironment, ShapeSimulator, Sphere, Cube, RandomWalk, LinearMotion, Attraction, Repulsion
 from data_manager import DataManager

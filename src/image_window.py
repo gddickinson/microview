@@ -15,13 +15,13 @@ class ImageWindow(QMainWindow):
         self.imageView = pg.ImageView()
         self.setCentralWidget(self.imageView)
 
-        print(f"ImageWindow init - Image shape: {image.shape}, dtype: {image.dtype}")
-        print(f"Image stats - Min: {np.min(image)}, Max: {np.max(image)}, Mean: {np.mean(image)}")
+        self.image = image
+        print(f"ImageWindow init - Image shape: {self.image.shape}, dtype: {self.image.dtype}")
+        print(f"Image stats - Min: {np.min(self.image)}, Max: {np.max(self.image)}, Mean: {np.mean(self.image)}")
 
-        self.imageView.setImage(image)
+        self.imageView.setImage(self.image)
         self.setWindowTitle(title)
         self.imageView.timeLine.sigPositionChanged.connect(self.onTimeChanged)
-        self.image = image
         self.metadata = metadata or {}
         self.currentIndex = 0
         self.is_current = False
@@ -41,6 +41,9 @@ class ImageWindow(QMainWindow):
 
         # Update the status bar with metadata information
         self.update_status_bar()
+
+        # Set a default size for the window
+        self.resize(800, 600)
 
     def onTimeChanged(self):
         self.currentIndex = int(self.imageView.timeLine.value())
@@ -69,11 +72,11 @@ class ImageWindow(QMainWindow):
 
     def add_roi(self, roi_type):
         if roi_type == 'rectangle':
-            roi = RectROI([0, 0], [50, 50], self.imageView)
+            roi = RectROI([0, 0], [50, 50], self)
         elif roi_type == 'ellipse':
-            roi = EllipseROI([0, 0], [50, 50], self.imageView)
+            roi = EllipseROI([0, 0], [50, 50], self)
         elif roi_type == 'line':
-            roi = LineROI([[0, 0], [50, 50]], self.imageView)
+            roi = LineROI([[0, 0], [50, 50]], self)
         else:
             raise ValueError(f"Unsupported ROI type: {roi_type}")
 
@@ -105,8 +108,8 @@ class ImageWindow(QMainWindow):
 
     def update_status_bar(self):
         if self.metadata:
-            status_text = f"Dims: {self.metadata.get('dims', 'N/A')} | "
-            status_text += f"Shape: {self.metadata.get('shape', 'N/A')} | "
+            status_text = f"Dims: {self.image.shape} | "
+            status_text += f"Dtype: {self.image.dtype} | "
             status_text += f"Pixel Size: {self.metadata.get('pixel_size_um', 'N/A')} µm | "
             status_text += f"Time Interval: {self.metadata.get('time_interval_s', 'N/A')} s"
             self.statusBar.showMessage(status_text)
@@ -160,12 +163,21 @@ class ImageWindow(QMainWindow):
 
     def display_metadata(self):
         metadata_text = "Image Metadata:\n\n"
+        metadata_text += f"Dimensions: {self.image.shape}\n"
+        metadata_text += f"Data type: {self.image.dtype}\n"
         for key, value in self.metadata.items():
             metadata_text += f"{key}: {value}\n"
         QMessageBox.information(self, "Image Metadata", metadata_text)
 
     def setImage(self, image):
+        self.image = image
         self.imageView.setImage(image)
+        self.update_status_bar()
+
+    def closeEvent(self, event):
+        # Emit a signal or call a method to inform the parent that this window is closing
+        self.windowSelected.emit(None)
+        super().closeEvent(event)
 
     # Getter methods
     def get_image(self):
@@ -178,7 +190,7 @@ class ImageWindow(QMainWindow):
         return int(self.imageView.timeLine.value())
 
     def get_total_frames(self):
-        return self.imageView.getImageItem().image.shape[0] if self.image.ndim == 3 else 1
+        return self.image.shape[0] if self.image.ndim == 3 else 1
 
     def get_image_item(self):
         return self.imageView.getImageItem()
@@ -202,11 +214,6 @@ class ImageWindow(QMainWindow):
         return self.metadata.get('time_interval_s', None)
 
     # setter methods
-    def set_image(self, new_image):
-        self.image = new_image
-        self.imageView.setImage(new_image)
-
     def set_metadata(self, new_metadata):
         self.metadata = new_metadata
-        self.update_status_bar()  # Assuming you want to update the status bar when metadata changes
-
+        self.update_status_bar()

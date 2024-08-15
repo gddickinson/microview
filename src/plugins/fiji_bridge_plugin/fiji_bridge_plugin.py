@@ -78,7 +78,7 @@ class FIJIBridge(Plugin):
             QMessageBox.warning(self.widget, "Error", f"Failed to launch FIJI: {str(e)}")
 
     def send_to_fiji(self):
-        current_window = self.microview.window_manager.current_window
+        current_window = self.microview.window_management.current_window
         if not current_window:
             QMessageBox.warning(self.widget, "Error", "No image selected in MicroView.")
             return

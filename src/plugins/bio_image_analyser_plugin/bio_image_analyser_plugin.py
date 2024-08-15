@@ -82,11 +82,11 @@ class BioImageAnalyzerWidget(QWidget):
         self.setWindowTitle("BioImageAnalyzer")
 
     def analyze(self):
-        if self.microview.window_manager.current_window is None:
+        if self.microview.window_management.current_window is None:
             QMessageBox.warning(self, "No Image", "Please open an image first.")
             return
 
-        image = self.microview.window_manager.current_window.image
+        image = self.microview.window_management.current_window.image
         method = self.method_combo.currentText()
         threshold = self.threshold_spin.value()
         min_size = self.min_size_spin.value()

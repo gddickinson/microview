@@ -244,7 +244,7 @@ class FluorescenceAnalysisPlugin(Plugin):
     def update_roi_list(self):
         self.roi_list.clear()
         self.roi_selector.clear()
-        self.rois = self.microview.window_manager.current_window.rois
+        self.rois = self.microview.window_management.current_window.rois
         for i, roi in enumerate(self.rois):
             self.roi_list.addItem(f"ROI {i+1}")
             self.roi_selector.addItem(f"ROI {i+1}")
@@ -268,8 +268,8 @@ class FluorescenceAnalysisPlugin(Plugin):
     def analyze_current_roi(self):
         if self.current_roi_index < len(self.rois):
             roi = self.rois[self.current_roi_index]
-            image_data = self.microview.window_manager.current_window.image
-            time_series = roi.getArrayRegion(image_data, self.microview.window_manager.current_window.get_image_item(), axes=(1,2)).mean(axis=(1,2))
+            image_data = self.microview.window_management.current_window.image
+            time_series = roi.getArrayRegion(image_data, self.microview.window_management.current_window.get_image_item(), axes=(1,2)).mean(axis=(1,2))
 
             logging.info(f"Analyzing ROI {self.current_roi_index}")
             logging.info(f"Time series shape: {time_series.shape}")
@@ -290,10 +290,10 @@ class FluorescenceAnalysisPlugin(Plugin):
         self.safe_clear_plot()
         if self.current_roi_index < len(self.rois):
             roi = self.rois[self.current_roi_index]
-            image_data = self.microview.window_manager.current_window.image
+            image_data = self.microview.window_management.current_window.image
             logging.info(f"Image data shape: {image_data.shape}")
             if image_data.ndim == 3:  # Ensure we're dealing with a time series
-                time_series = roi.getArrayRegion(image_data, self.microview.window_manager.current_window.get_image_item(), axes=(1,2)).mean(axis=(1,2))
+                time_series = roi.getArrayRegion(image_data, self.microview.window_management.current_window.get_image_item(), axes=(1,2)).mean(axis=(1,2))
                 logging.info(f"Time series shape after getArrayRegion: {time_series.shape}")
             else:
                 logging.error(f"Unexpected image dimensions: {image_data.shape}")
@@ -341,7 +341,7 @@ class FluorescenceAnalysisPlugin(Plugin):
             logging.warning("No ROIs selected")
             return
 
-        current_window = self.microview.window_manager.current_window
+        current_window = self.microview.window_management.current_window
         if current_window is None:
             logging.error("No image window open")
             return
@@ -705,8 +705,8 @@ class FluorescenceAnalysisPlugin(Plugin):
         all_durations = []
         for roi_index in selected_rois:
             roi = self.rois[roi_index]
-            time_series = roi.getArrayRegion(self.microview.window_manager.current_window.image,
-                                             self.microview.window_manager.current_window.get_image_item()).mean(axis=(1,2))
+            time_series = roi.getArrayRegion(self.microview.window_management.current_window.image,
+                                             self.microview.window_management.current_window.get_image_item()).mean(axis=(1,2))
 
             # Perform analysis to get best_fit
             sigma_noise = self.estimate_noise(time_series)
@@ -741,8 +741,8 @@ class FluorescenceAnalysisPlugin(Plugin):
         all_occupancies = []
         for roi_index in selected_rois:
             roi = self.rois[roi_index]
-            time_series = roi.getArrayRegion(self.microview.window_manager.current_window.image,
-                                             self.microview.window_manager.current_window.get_image_item()).mean(axis=(1,2))
+            time_series = roi.getArrayRegion(self.microview.window_management.current_window.image,
+                                             self.microview.window_management.current_window.get_image_item()).mean(axis=(1,2))
 
             # Perform analysis to get best_fit
             sigma_noise = self.estimate_noise(time_series)

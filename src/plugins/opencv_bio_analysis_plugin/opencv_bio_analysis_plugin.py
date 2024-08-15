@@ -80,10 +80,10 @@ class OpenCVBioAnalysisPlugin(Plugin):
 
     def get_current_image(self):
         try:
-            if hasattr(self.microview.window_manager.current_window, 'flika_window'):
-                image = self.microview.window_manager.current_window.flika_window.image
+            if hasattr(self.microview.window_management.current_window, 'flika_window'):
+                image = self.microview.window_management.current_window.flika_window.image
             else:
-                image = self.microview.window_manager.current_window.image
+                image = self.microview.window_management.current_window.image
 
             self.logger.info(f"Input image shape: {image.shape}, dtype: {image.dtype}")
 
@@ -230,30 +230,30 @@ class OpenCVBioAnalysisPlugin(Plugin):
                 if result.ndim == 2:
                     # For 2D results (images)
                     pg_image = pg.image(result, title=title)
-                    self.microview.window_manager.add_window(pg_image.window())
+                    self.microview.window_management.add_window(pg_image.window())
                 elif result.ndim == 3:
                     if result.shape[2] == 3:
                         # For RGB results
                         pg_image = pg.image(np.transpose(result, (1, 0, 2)), title=title)
-                        self.microview.window_manager.add_window(pg_image.window())
+                        self.microview.window_management.add_window(pg_image.window())
                     else:
                         # For time series results
                         image_view = pg.ImageView()
                         image_view.setImage(result)
                         image_view.setWindowTitle(title)
-                        self.microview.window_manager.add_window(image_view)
+                        self.microview.window_management.add_window(image_view)
                 elif result.ndim == 4:
                     # For time series of RGB images
                     image_view = pg.ImageView()
                     image_view.setImage(result, xvals=np.arange(result.shape[0]))
                     image_view.setWindowTitle(title)
-                    self.microview.window_manager.add_window(image_view)
+                    self.microview.window_management.add_window(image_view)
                 else:
                     raise ValueError(f"Unsupported result shape: {result.shape}")
             else:
                 # For non-image results (e.g., graphs)
                 plot = pg.plot(result, title=title)
-                self.microview.window_manager.add_window(plot)
+                self.microview.window_management.add_window(plot)
 
             self.logger.info(f"Successfully displayed result: {title}")
         except Exception as e:

@@ -125,5 +125,5 @@ class MenuManager:
         self.add_action('view', 'Toggle ROI Tools', self.parent.toggleROIToolsDock)
         self.add_action('view', 'Toggle Plugin Panel', self.parent.togglePluginDock)
 
-        if self.parent.console_dock:
-            self.menus['view'].addAction(self.parent.console_dock.toggleViewAction())
+        if self.parent.console_operations.console_dock:
+            self.menus['view'].addAction(self.parent.console_operations.console_dock.toggleViewAction())

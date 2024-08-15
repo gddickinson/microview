@@ -13,7 +13,7 @@ import tifffile
 from scipy.ndimage import rotate
 from typing import Tuple, List, Optional, Any, Dict
 
-from file_operations import ImporterFactory
+from lightsheet_file_operations import ImporterFactory
 
 class DataManager:
     def __init__(self):

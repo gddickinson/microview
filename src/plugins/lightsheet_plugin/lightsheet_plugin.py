@@ -23,8 +23,8 @@ class LightsheetPlugin(Plugin):
         self.lightsheet_viewer.show()
 
         # If there's a current window selected in MicroView
-        if self.microview.window_manager.current_window is not None:
-            image = self.microview.window_manager.current_window.image
+        if self.microview.window_management.current_window is not None:
+            image = self.microview.window_management.current_window.image
             if image is not None:
                 # Assuming setData is a method in LightsheetViewer that accepts the data
                 self.lightsheet_viewer.setData(image)

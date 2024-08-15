@@ -51,6 +51,24 @@ from file_loader import FileLoader
 from scikit_analysis_console import ScikitAnalysisConsole
 from transformations_dialog import TransformationsDialog
 from synthetic_data_dialog import SyntheticDataDialog
+from math_operations import MathOperations
+from filter_operations import FilterOperations
+from binary_operations import BinaryOperations
+from stack_operations import StackOperations
+from analysis_operations import AnalysisOperations
+from roi_operations import ROIOperations
+from particle_analysis_operations import ParticleAnalysisOperations
+from ui_operations import UIOperations
+from plugin_management import PluginManagement
+from file_operations import FileOperations
+from logging_operations import LoggingOperations
+from config_management import ConfigManagement
+from window_management_operations import WindowManagementOperations
+from variable_management import VariableManagement
+from console_operations import ConsoleOperations
+from menu_operations import MenuOperations
+from metadata_operations import MetadataOperations
+
 
 #setup loggin
 logger = setup_logging()
@@ -75,68 +93,74 @@ class MicroViewConsole(RichJupyterWidget):
         self.kernel_manager.kernel.shell.push(variables)
 
 
-
 class MicroView(QMainWindow):
     VERSION = "1.0.0"
-    current_window_changed = pyqtSignal(object)
 
     def __init__(self):
         super().__init__()
-        self.plugins = {}
-        self.recent_files = []
-        self.config_file = os.path.expanduser('~/.microview_config.json')
-        self.setup_logging()
-        self.load_config()
+        self.logger = LoggingOperations.setup_logging()
+        self.config_manager = ConfigManagement(self)
+        self.config_manager.load_config()
+        self.ui_operations = UIOperations(self)
+        self.plugin_management = PluginManagement(self)
+        self.window_management = WindowManagementOperations(self)
+        self.file_operations = FileOperations(self)
+        self.console_operations = ConsoleOperations(self)
+        self.variable_management = VariableManagement(self)
+        self.menu_operations = MenuOperations(self)
+        self.metadata_operations = MetadataOperations(self)
         self.in_spyder = get_ipython().__class__.__name__ == 'SpyderShell'
         self.filters = Filters(self)
         self.particle_analysis_results = None
         self.menu_manager = MenuManager(self)
         self.image_processor = ImageProcessor()
-        self.window_manager = WindowManager()
         self.file_loader = FileLoader()
-        self.shared_variables = {}
         self.initUI()
-        self.load_plugins()
-        logger.info(f"Plugins loaded: {list(self.plugins.keys())}")
-        self.flika_windows = []
-        #self.current_window = None
-        self.windows = []
+        self.plugins = self.plugin_management.load_plugins()
+        self.logger.info(f"Plugins loaded: {list(self.plugins.keys())}")
+        self.plugin_management.update_plugin_list(self.pluginList)
         self.setupMenus()
+        self.loadBuiltInOperations()
 
     def initUI(self):
         self.setWindowTitle('MicroView Control Panel')
         self.setGeometry(100, 100, 1200, 800)
 
-        self.createToolbar()
+        # Create toolbar
+        self.toolbar, self.toggle_chart_button, self.toggle_centroids_button = self.ui_operations.createToolbar()
+        self.addToolBar(Qt.TopToolBarArea, self.toolbar)
 
         # Create dock widgets
-        self.createInfoDock()
-        self.createZProfileDock()
-        self.createPluginDock()
-        self.createROIToolsDock()
-        self.createConsoleDock()
+        self.info_dock, self.info_panel = self.ui_operations.createInfoDock()
+        self.z_profile_dock, self.z_profile_widget = self.ui_operations.createZProfileDock()
+        self.plugin_dock, self.pluginList, self.runPluginButton = self.ui_operations.createPluginDock()
+        self.roi_tools_dock, self.roi_info_widget, self.roi_z_profile_widget, self.roi_zoom_view = self.ui_operations.createROIToolsDock()
+
+        # Create console dock
+        self.console_operations.create_console_dock()
 
         # Arrange docks
         self.addDockWidget(Qt.TopDockWidgetArea, self.info_dock)
         self.addDockWidget(Qt.TopDockWidgetArea, self.z_profile_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.roi_tools_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.plugin_dock)
-        if self.console_dock:
-            self.addDockWidget(Qt.BottomDockWidgetArea, self.console_dock)
+        if self.console_operations.console_dock:
+            self.addDockWidget(Qt.BottomDockWidgetArea, self.console_operations.console_dock)
 
         # Hide some docks by default
         self.roi_tools_dock.hide()
         self.plugin_dock.hide()
 
         # Particle count label in status bar
-        self.particle_count_label = QLabel("Particles in frame: 0")
+        self.particle_count_label = self.ui_operations.createParticleCountLabel()
         self.statusBar().addPermanentWidget(self.particle_count_label)
 
         # Connect signals
-        self.current_window_changed.connect(self.info_panel.update_info)
+        self.window_management.current_window_changed.connect(self.on_current_window_changed)
+
 
         # Initialize shared variables
-        self.push_variables({
+        self.variable_management.push_variables({
             'np': np,
             'pg': pg,
             'filters': filters,
@@ -147,6 +171,157 @@ class MicroView(QMainWindow):
         })
 
         self.show()
+
+    def on_current_window_changed(self, window):
+        if hasattr(self, 'info_panel'):
+            self.info_panel.update_info(window)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.ui_operations.adjustDockSizes(self.width(), self.height())
+
+    def loadBuiltInOperations(self):
+        self.math_operations = MathOperations(self)
+        self.filter_operations = FilterOperations(self)
+        self.binary_operations = BinaryOperations(self)
+        self.stack_operations = StackOperations(self)
+        self.analysis_operations = AnalysisOperations(self)
+        self.roi_operations = ROIOperations(self)
+        self.particle_analysis_operations = ParticleAnalysisOperations(self)
+
+        logger.info("Built-in operations loaded")
+
+    def mathOperation(self, operation):
+        self.math_operations.mathOperation(operation)
+
+    def gaussianBlur(self):
+        self.filter_operations.gaussianBlur()
+
+    def medianFilter(self):
+        self.filter_operations.medianFilter()
+
+    def sobelEdge(self):
+        self.filter_operations.sobelEdge()
+
+    def threshold(self):
+        self.binary_operations.threshold()
+
+    def erode(self):
+        self.binary_operations.erode()
+
+    def dilate(self):
+        self.binary_operations.dilate()
+
+    def zProjectMax(self):
+        self.stack_operations.zProjectMax()
+
+    def zProjectMean(self):
+        self.stack_operations.zProjectMean()
+
+    def measure(self):
+        self.analysis_operations.measure()
+
+    def findMaxima(self):
+        self.analysis_operations.findMaxima()
+
+    def run_particle_analysis(self):
+        self.particle_analysis_operations.run_particle_analysis()
+
+    def toggle_results_chart(self, checked):
+        self.particle_analysis_operations.toggle_results_chart(checked)
+
+    def toggle_centroids(self, checked):
+        self.particle_analysis_operations.toggle_centroids(checked)
+
+
+    def colocalization_analysis(self):
+        self.analysis_operations.colocalization_analysis()
+
+    def open_analysis_console(self):
+        self.analysis_operations.open_analysis_console()
+
+    def addROI(self, roi_type):
+        self.roi_operations.addROI(roi_type)
+
+    def removeAllROIs(self):
+        self.roi_operations.removeAllROIs()
+
+    def save_rois_dialog(self):
+        self.roi_operations.save_rois_dialog()
+
+    def load_rois_dialog(self):
+        self.roi_operations.load_rois_dialog()
+
+    def openFile(self):
+        self.file_operations.open_file()
+
+    def loadImage(self, fileName):
+        self.file_operations.load_image(fileName)
+
+    def saveFile(self):
+        self.file_operations.save_file()
+
+    def load_plugins(self):
+        self.plugin_management.load_plugins()
+
+    def update_plugin_list(self):
+        self.plugin_management.update_plugin_list(self.pluginList)
+
+    def runSelectedPlugin(self):
+        self.plugin_management.run_selected_plugin(self.pluginList)
+
+    def close_all_plugins(self):
+        self.plugin_management.close_all_plugins()
+
+    def save_config(self):
+        self.config_manager.save_config()
+
+    def set_current_window(self, window):
+        self.window_management.set_current_window(window)
+
+    def add_window(self, window):
+        return self.window_management.add_window(window)
+
+    def closeCurrentWindow(self):
+        self.window_management.close_current_window()
+
+    def tileWindows(self):
+        self.window_management.tile_windows()
+
+    def cascadeWindows(self):
+        self.window_management.cascade_windows()
+
+    def push_variables(self, variables):
+        self.variable_management.push_variables(variables)
+
+    def get_variable(self, name):
+        return self.variable_management.get_variable(name)
+
+    def toggleConsole(self):
+        self.console_operations.toggle_console()
+
+    def show_ipython_commands(self):
+        self.console_operations.show_ipython_commands()
+
+    def add_menu_item(self, menu_name, item_name, callback):
+        self.menu_operations.add_menu_item(menu_name, item_name, callback)
+
+    def show_user_guide(self):
+        self.menu_operations.show_user_guide()
+
+    def show_about(self):
+        self.menu_operations.show_about()
+
+    def display_metadata_info(self, metadata):
+        self.metadata_operations.display_metadata_info(metadata)
+
+    def update_recent_files_menu(self):
+        self.menu_manager.update_recent_files_menu()
+
+    def on_time_slider_changed(self):
+        if self.window_management.current_window:
+            self.window_management.current_window.update_frame_info()
+
 
     def setupPluginDock(self):
         self.plugin_dock= QDockWidget("Plugins", self)
@@ -183,7 +358,6 @@ class MicroView(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.roi_tools_dock)
         self.roi_tools_dock.hide()
 
-
     def setup_logging(self):
         logger = logging.getLogger(__name__)
         logger.setLevel(logging.INFO)
@@ -202,25 +376,7 @@ class MicroView(QMainWindow):
             self.recent_files = []
             self.auto_load_plugins = []
 
-    def save_config(self):
-        config = {
-            'recent_files': self.recent_files,
-            'auto_load_plugins': self.auto_load_plugins
-        }
-        with open(self.config_file, 'w') as f:
-            json.dump(config, f)
 
-    def update_recent_files_menu(self):
-        self.menu_manager.update_recent_files_menu()
-
-    def push_variables(self, variables):
-        self.shared_variables.update(variables)
-        if self.console is not None:
-            self.console.push_variables(variables)
-        logger.info(f"Updated shared variables: {', '.join(variables.keys())}")
-
-    def get_variable(self, name):
-        return self.shared_variables.get(name)
 
     def createToolbar(self):
         self.toolbar = QToolBar()
@@ -244,27 +400,6 @@ class MicroView(QMainWindow):
 
         self.toolbar.addWidget(self.toggle_chart_button)
         self.toolbar.addWidget(self.toggle_centroids_button)
-
-    def set_current_window(self, window):
-        if self.window_manager.current_window:
-            # Safely disconnect signals from the old current window
-            self.safe_disconnect(self.window_manager.current_window.imageView.scene.sigMouseMoved, self.update_mouse_position)
-            self.safe_disconnect(self.window_manager.current_window.timeChanged, self.update_frame_info)
-            self.safe_disconnect(self.window_manager.current_window.roiChanged, self.update_roi_info)
-            self.window_manager.current_window.set_as_current(False)
-
-        self.window_manager.current_window = window
-        self.current_window_changed.emit(window)
-
-        if window:
-            # Connect signals to the new current window
-            window.imageView.scene.sigMouseMoved.connect(self.update_mouse_position)
-            window.timeChanged.connect(self.update_frame_info)
-            window.roiChanged.connect(self.update_roi_info)
-            window.set_as_current(True)
-
-        self.update_frame_info(0)
-        self.update_roi_info(None)  # Clear ROI info when changing windows
 
 
     def safe_disconnect(self, signal, slot):
@@ -304,7 +439,6 @@ class MicroView(QMainWindow):
                     self.info_panel.update_intensity(None)
                     self.z_profile_widget.clear_profile()
 
-
     def update_roi_info(self, roi):
         if roi is not None and self.window_manager.current_window:
             roi_data = roi.get_roi_data()
@@ -322,143 +456,9 @@ class MicroView(QMainWindow):
             self.info_panel.update_info(self.window_manager.current_window)
             self.window_manager.current_window.update_status_bar()
 
-
-    def openFile(self):
-        file_types = "All Supported Files ("
-        file_types += " ".join(f"*{ext}" for ext in self.file_loader.supported_extensions)
-        file_types += ");;"
-        file_types += ";;".join([f"{ext.upper()[1:]} Files (*{ext})" for ext in self.file_loader.supported_extensions])
-
-        fileName, _ = QFileDialog.getOpenFileName(self, "Open Image", "", file_types)
-        if fileName:
-            self.loadImage(fileName)
-
-
-    def loadImage(self, fileName):
-        try:
-            result = self.file_loader.load_file(fileName)
-            if result is not None:
-                image, metadata = result
-
-                # Ensure metadata is a dictionary
-                metadata = metadata or {}
-
-                # Save metadata to a separate file
-                try:
-                    self.file_loader.save_metadata(fileName, metadata)
-                except Exception as e:
-                    logger.warning(f"Failed to save metadata: {str(e)}")
-
-                window = ImageWindow(image, os.path.basename(fileName), metadata)
-                self.window_manager.add_window(window)
-                self.set_current_window(window)
-                self.windows.append(window)
-                window.windowSelected.connect(self.set_current_window)
-
-                # Connect the time changed signal
-                window.timeChanged.connect(self.on_time_slider_changed)
-
-                # Update shared variables
-                self.push_variables({
-                    'current_image': image,
-                    'current_metadata': metadata,
-                    'current_window': window
-                })
-
-                logger.info(f"Loaded image: {fileName}")
-
-                # Update recent files
-                if fileName in self.recent_files:
-                    self.recent_files.remove(fileName)
-                self.recent_files.insert(0, fileName)
-                self.recent_files = self.recent_files[:10]  # Keep only 10 most recent
-                self.update_recent_files_menu()
-                self.save_config()
-
-        except Exception as e:
-            logger.error(f"Error loading image: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to load image: {str(e)}")
-
-
-    def display_metadata_info(self, metadata):
-        info = f"Image dimensions: {metadata['dims']}\n"
-        info += f"Image shape: {metadata['shape']}\n"
-        info += f"Data type: {metadata['dtype']}\n"
-
-        if metadata['pixel_size_um']:
-            info += f"Pixel size: {metadata['pixel_size_um']} µm\n"
-        if metadata['time_interval_s']:
-            info += f"Time interval: {metadata['time_interval_s']} s\n"
-        if metadata['channel_names']:
-            info += f"Channels: {', '.join(metadata['channel_names'])}\n"
-
-        QMessageBox.information(self, "Image Metadata", info)
-
-
-    def load_plugins(self):
-        logger.info("Starting to load plugins")
-        plugins_dir = os.path.join(os.path.dirname(__file__), 'plugins')
-        logger.info(f"Plugins directory: {plugins_dir}")
-        startup_file = os.path.join(plugins_dir, 'startup.json')
-        logger.info(f"Startup file path: {startup_file}")
-
-        if os.path.exists(startup_file):
-            with open(startup_file, 'r') as f:
-                startup_config = json.load(f)
-            enabled_plugins = startup_config.get('enabled_plugins', [])
-            logger.info(f"Enabled plugins from startup file: {enabled_plugins}")
-        else:
-            enabled_plugins = []
-            logger.warning("Startup file not found. All plugins will be loaded.")
-
-        for item in os.listdir(plugins_dir):
-            plugin_dir = os.path.join(plugins_dir, item)
-            logger.info(f"Checking directory: {plugin_dir}")
-            if os.path.isdir(plugin_dir):
-                plugin_file = os.path.join(plugin_dir, f"{item}.py")
-                logger.info(f"Looking for plugin file: {plugin_file}")
-                if os.path.exists(plugin_file):
-                    plugin_name = item
-                    logger.info(f"Found plugin: {plugin_name}")
-                    if plugin_name in enabled_plugins or not enabled_plugins:
-                        try:
-                            logger.info(f"Attempting to load plugin: {plugin_name}")
-                            spec = importlib.util.spec_from_file_location(plugin_name, plugin_file)
-                            module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(module)
-                            plugin_class = getattr(module, 'Plugin')
-                            plugin = plugin_class(self)
-                            self.plugins[plugin.name] = plugin
-                            logger.info(f"Successfully loaded plugin: {plugin.name}")
-                        except Exception as e:
-                            logger.error(f"Error loading plugin {plugin_name}: {str(e)}")
-                            logger.error(traceback.format_exc())
-                    else:
-                        logger.info(f"Plugin {plugin_name} is not enabled in startup.json")
-                else:
-                    logger.warning(f"Plugin file not found: {plugin_file}")
-            else:
-                logger.info(f"Not a directory: {plugin_dir}")
-
-        logger.info(f"Finished loading plugins. Total plugins loaded: {len(self.plugins)}")
-        self.update_plugin_list()
-
-    def update_plugin_list(self):
-        self.pluginList.clear()
-        for plugin_name in self.plugins.keys():
-            self.pluginList.addItem(plugin_name)
-
     def get_plugins(self):
         return self.plugins
 
-    def saveFile(self):
-        if self.window_manager.current_window:
-            fileName, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "TIFF Files (*.tiff)")
-            if fileName:
-                tifffile.imwrite(fileName, self.window_manager.current_window.image)
-
-    def closeCurrentWindow(self):
-        self.window_manager.close_current_window()
 
     def undo(self):
         # Implement undo functionality
@@ -467,122 +467,6 @@ class MicroView(QMainWindow):
     def redo(self):
         # Implement redo functionality
         pass
-
-
-
-    def mathOperation(self, operation):
-        if self.window_manager.current_window:
-            value, ok = QInputDialog.getDouble(self, "Input", "Enter value:")
-            if ok:
-                image = self.window_manager.current_window.image
-                original_dtype = image.dtype
-
-                # Convert image to float64 for calculations
-                image = image.astype(np.float64)
-
-                if operation == 'add':
-                    result = image + value
-                elif operation == 'subtract':
-                    result = image - value
-                elif operation == 'multiply':
-                    result = image * value
-                elif operation == 'divide':
-                    # Avoid division by zero
-                    if value == 0:
-                        QMessageBox.warning(self, "Error", "Cannot divide by zero.")
-                        return
-                    result = image / value
-                else:
-                    QMessageBox.warning(self, "Error", f"Unknown operation: {operation}")
-                    return
-
-                # Clip the result to the range of the original dtype
-                info = np.iinfo(original_dtype)
-                result = np.clip(result, info.min, info.max)
-
-                # Convert back to the original dtype
-                result = result.astype(original_dtype)
-
-                self.window_manager.current_window.setImage(result)
-                print(f"Applied {operation} operation with value {value}")
-        else:
-            QMessageBox.warning(self, "Error", "No image window is currently active.")
-
-    def gaussianBlur(self):
-        if self.window_manager.current_window:
-            sigma, ok = QInputDialog.getDouble(self, "Gaussian Blur", "Enter sigma value:")
-            if ok:
-                image = self.window_manager.current_window.image
-                blurred = self.image_processor.gaussian_blur(image, sigma)
-                self.window_manager.current_window.setImage(blurred)
-
-    def medianFilter(self):
-        if self.window_manager.current_window:
-            size, ok = QInputDialog.getInt(self, "Median Filter", "Enter filter size:")
-            if ok:
-                image = self.window_manager.current_window.image
-                filtered = self.image_processor.median_filter(image, size)
-                self.window_manager.current_window.setImage(filtered)
-
-    def sobelEdge(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            edges = self.image_processor.sobel_edge(image)
-            self.window_manager.current_window.setImage(edges)
-
-    def threshold(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            binary = self.image_processor.threshold(image)
-            self.window_manager.current_window.setImage(binary)
-
-    def erode(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            eroded = self.image_processor.erode(image)
-            self.window_manager.current_window.setImage(eroded)
-
-    def dilate(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            dilated = self.image_processor.dilate(image)
-            self.window_manager.current_window.setImage(dilated)
-
-    def zProjectMax(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            if image.ndim == 3:
-                try:
-                    projected = self.image_processor.z_project(image, method='max')
-                    self.window_manager.current_window.setImage(projected)
-                except Exception as e:
-                    self.logger.error(f"Error in zProjectMax: {str(e)}")
-                    QMessageBox.critical(self, "Error", f"Error in maximum intensity projection: {str(e)}")
-
-    def zProjectMean(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            if image.ndim == 3:
-                try:
-                    projected = self.image_processor.z_project(image, method='mean')
-                    self.window_manager.current_window.setImage(projected)
-                except Exception as e:
-                    self.logger.error(f"Error in zProjectMean: {str(e)}")
-                    QMessageBox.critical(self, "Error", f"Error in mean intensity projection: {str(e)}")
-
-    def measure(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            print(f"Mean: {np.mean(image)}")
-            print(f"Std Dev: {np.std(image)}")
-            print(f"Min: {np.min(image)}")
-            print(f"Max: {np.max(image)}")
-
-    def findMaxima(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            local_max = filters.peak_local_max(image)
-            print(f"Found {len(local_max)} local maxima")
 
     def particleAnalysis(self):
         if self.window_manager.current_window:
@@ -594,23 +478,6 @@ class MicroView(QMainWindow):
             for prop in props:
                 print(f"Area: {prop.area}, Centroid: {prop.centroid}")
 
-
-    def run_particle_analysis(self):
-        if self.window_manager.current_window is None:
-            QMessageBox.warning(self, "No Image", "Please open an image first.")
-            return
-
-        try:
-            image = self.window_manager.current_window.image
-            analysis_dialog = ParticleAnalysisResults(self, image)
-            analysis_dialog.analysisComplete.connect(self.on_particle_analysis_complete)
-            analysis_dialog.exec_()  # Use exec_ instead of show() to make it modal
-
-        except Exception as e:
-            print(f"Error in particle analysis: {str(e)}")
-            print(traceback.format_exc())
-            QMessageBox.critical(self, "Error", f"Error in particle analysis: {str(e)}")
-
     def on_particle_analysis_complete(self, df):
         self.particle_analysis_results = df
         print(f"Received particle analysis results with {len(df)} particles")  # Debug print
@@ -618,14 +485,6 @@ class MicroView(QMainWindow):
         self.toggle_chart_button.setEnabled(True)
         self.toggle_centroids_button.setEnabled(True)
         QMessageBox.information(self, "Analysis Complete", f"Found {len(df)} particles.")
-
-
-    def toggle_results_chart(self, checked):
-        if self.particle_analysis_results is not None:
-            if checked:
-                self.show_results_chart()
-            else:
-                self.hide_results_chart()
 
 
     def show_results_chart(self):
@@ -694,17 +553,6 @@ class MicroView(QMainWindow):
         if hasattr(self, 'results_chart_window'):
             self.results_chart_window.hide()
 
-    def toggle_centroids(self, checked):
-        if self.particle_analysis_results is not None:
-            current_window = self.window_manager.current_window
-            if current_window:
-                if checked:
-                    self.plot_centroids(current_window)
-                else:
-                    self.remove_centroids(current_window)
-
-
-
     def remove_centroids(self, window):
         if hasattr(window, 'centroid_items'):
             for item in window.centroid_items:
@@ -744,23 +592,6 @@ class MicroView(QMainWindow):
             particle_count = len(frame_particles)
             self.particle_count_label.setText(f"Particles in frame: {particle_count}")
 
-    def on_time_slider_changed(self):
-        if self.toggle_centroids_button.isChecked():
-            current_window = self.window_manager.current_window
-            if current_window:
-                self.plot_centroids(current_window)
-
-
-    def addROI(self, roi):
-        if self.window_manager.current_window:
-            try:
-                image_window = self.window_manager.current_window
-
-                image_window.add_roi(roi)
-                print(f"ROI added to view: {roi}")  # Debug print
-            except Exception as e:
-                print(f"Error adding ROI: {str(e)}")
-
     def removeROI(self, roi):
         if self.window_manager.current_window:
             try:
@@ -779,50 +610,6 @@ class MicroView(QMainWindow):
                 print("ROI removed")
             except Exception as e:
                 print(f"Error removing ROI: {str(e)}")
-
-    def removeAllROIs(self):
-        if self.window_manager.current_window:
-            try:
-                image_window = self.window_manager.current_window
-                for roi in image_window.rois[:]:
-                    self.removeROI(roi)
-                print("All ROIs removed")  # Debug print
-            except Exception as e:
-                print(f"Error removing all ROIs: {str(e)}")
-
-    def colocalization_analysis(self):
-        if self.window_manager.current_window and hasattr(self.window_manager.current_window, 'rois') and len(self.window_manager.current_window.rois) == 1:
-            roi = self.window_manager.current_window.rois[0]
-            image_view = self.window_manager.current_window
-            image = image_view.getImageItem().image
-
-            if image.ndim != 3 or image.shape[2] != 2:
-                print("Colocalization analysis requires a two-channel image")
-                return
-
-            roi_data = roi.getArrayRegion(image, image_view.getImageItem())
-            channel1 = roi_data[:, :, 0].flatten()
-            channel2 = roi_data[:, :, 1].flatten()
-
-            pearson_corr, _ = stats.pearsonr(channel1, channel2)
-            manders_m1 = np.sum(channel1[channel2 > 0]) / np.sum(channel1)
-            manders_m2 = np.sum(channel2[channel1 > 0]) / np.sum(channel2)
-
-            print("Colocalization Analysis:")
-            print(f"Pearson's correlation coefficient: {pearson_corr:.3f}")
-            print(f"Manders' coefficient M1: {manders_m1:.3f}")
-            print(f"Manders' coefficient M2: {manders_m2:.3f}")
-
-            # Create a scatter plot of the two channels
-            scatter_plot = pg.plot(title="Channel Intensity Scatter Plot")
-            scatter_plot.plot(channel1, channel2, pen=None, symbol='o', symbolSize=5, symbolPen=None, symbolBrush=(100, 100, 255, 50))
-            scatter_plot.setLabel('left', 'Channel 2 Intensity')
-            scatter_plot.setLabel('bottom', 'Channel 1 Intensity')
-        else:
-            print("Please select a single ROI for colocalization analysis")
-
-
-
 
     def loadPlugin(self):
         pluginName, _ = QFileDialog.getOpenFileName(self, "Load Plugin", "", "Python Files (*.py)")
@@ -859,57 +646,12 @@ class MicroView(QMainWindow):
                 if plugin_dir in sys.path:
                     sys.path.remove(plugin_dir)
 
-    def runSelectedPlugin(self):
-        selected_items = self.pluginList.selectedItems()
-        if selected_items:
-            plugin_name = selected_items[0].text()
-            if plugin_name in self.plugins:
-                self.plugins[plugin_name].run()
-            else:
-                print(f"Plugin {plugin_name} not found.")
-        else:
-            print("No plugin selected.")
-
     def togglePluginWindow(self):
         if self.plugin_dock.isVisible():
             self.plugin_dock.hide()
         else:
             self.plugin_dock.show()
 
-    def tileWindows(self):
-        self.window_manager.tile_windows()
-
-    def cascadeWindows(self):
-        self.window_manager.cascade_windows()
-
-    def toggleConsole(self):
-        if hasattr(self, 'console_dock') and self.console_dock.isVisible():
-            self.console_dock.hide()
-        elif hasattr(self, 'console_dock'):
-            self.console_dock.show()
-
-    def show_user_guide(self):
-        QMessageBox.information(self, "User Guide", "User guide content goes here.")
-
-    def show_ipython_commands(self):
-        commands = """
-        Available IPython commands:
-        - get_mv_var(name): Get a shared variable
-        - ex: The MicroView instance
-        - ex.loadImage(filename): Load an image file
-        - ex.current_window: Access the current image window
-        """
-        QMessageBox.information(self, "IPython Commands", commands)
-
-    def show_about(self):
-        about_text = f"""
-        MicroView version {self.VERSION}
-
-        A microscopy image viewer and analysis tool.
-
-        Developed by [Your Name/Organization]
-        """
-        QMessageBox.about(self, "About MicroView", about_text)
 
     def flika_open_file(self, filename):
         return flika_open_file(self, filename)
@@ -982,22 +724,6 @@ class MicroView(QMainWindow):
         except Exception as e:
             logger.error(f"Error saving ROIs to {filename}: {str(e)}")
 
-    def save_rois_dialog(self):
-        filename, _ = QFileDialog.getSaveFileName(self, "Save ROIs", "", "JSON Files (*.json)")
-        if filename:
-            self.save_rois(filename)
-
-    def load_rois_dialog(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Load ROIs", "", "JSON Files (*.json)")
-        if filename:
-            self.open_rois(filename)
-
-    def add_menu_item(self, menu_name, item_name, callback):
-        if menu_name not in self.menu_manager.menus:
-            self.menu_manager.menus[menu_name] = self.menuBar().addMenu(menu_name)
-        action = QAction(item_name, self)
-        action.triggered.connect(callback)
-        self.menu_manager.menus[menu_name].addAction(action)
 
     def add_flika_window(self, flika_window):
         self.flika_windows.append(flika_window)
@@ -1006,41 +732,11 @@ class MicroView(QMainWindow):
         # Connect Flika window signals to MicroView slots if needed
         flika_window.timeChanged.connect(self.on_time_slider_changed)
 
-    def add_window(self, image, title=""):
-        if isinstance(image, FlikaMicroViewWindow):
-            window = image.flika_window
-        else:
-            window = ImageWindow(image, title)
-        self.window_manager.add_window(window)
-
-        # Connect the time changed signal
-        if isinstance(image, FlikaMicroViewWindow):
-            image.timeChanged.connect(self.on_time_slider_changed)
-        elif hasattr(window, 'timeChanged'):
-            window.timeChanged.connect(self.on_time_slider_changed)
-
-        # Update shared variables
-        self.push_variables({
-            'current_image': window.image if hasattr(window, 'image') else image,
-            'current_window': window
-        })
-
-        logger.info(f"Added new window: {title}")
-        return window
 
     def closeEvent(self, event):
         # This method is called when the window is about to be closed
         self.close_all_plugins()
         super().closeEvent(event)
-
-    def close_all_plugins(self):
-        for plugin_name, plugin in self.plugins.items():
-            try:
-                if hasattr(plugin, 'close') and callable(plugin.close):
-                    plugin.close()
-                logger.info(f"Closed plugin: {plugin_name}")
-            except Exception as e:
-                logger.error(f"Error closing plugin {plugin_name}: {str(e)}")
 
     def createInfoDock(self):
         self.info_panel = InfoPanel()
@@ -1069,10 +765,6 @@ class MicroView(QMainWindow):
         # Set a maximum width for the info dock
         max_info_width = int(width * 0.3)  # 30% of the window width
         self.info_dock.setMaximumWidth(max_info_width)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.adjustDockSizes()
 
     def createZProfileDock(self):
         self.z_profile_widget = ZProfileWidget()
@@ -1136,13 +828,6 @@ class MicroView(QMainWindow):
     def setupMenus(self):
         self.menu_manager.create_menus()
 
-    def open_analysis_console(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
-            self.analysis_console = ScikitAnalysisConsole(image)
-            self.analysis_console.analysisCompleted.connect(self.display_analysis_result)
-            self.analysis_console.show()
-
     def display_analysis_result(self, result):
         print("Displaying result in MicroView")
         print(f"Result in MicroView - Shape: {result.shape}, dtype: {result.dtype}")
@@ -1150,7 +835,6 @@ class MicroView(QMainWindow):
         window = ImageWindow(result, "Analysis Result")
         self.window_manager.add_window(window)
         self.set_current_window(window)
-
 
     def open_transformations_dialog(self):
         if self.window_manager.current_window:
@@ -1172,9 +856,6 @@ class MicroView(QMainWindow):
         window = ImageWindow(data, "Synthetic Data")
         self.window_manager.add_window(window)
         self.set_current_window(window)
-
-
-
 
 
 

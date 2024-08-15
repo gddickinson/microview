@@ -121,12 +121,12 @@ class FlikaBridgePlugin(Plugin):
                 QMessageBox.critical(self.microview, "Error", f"Error executing Flika command: {str(e)}")
 
     def transfer_to_flika(self):
-        if g.m.window_manager.current_window is None:
+        if g.m.window_management.current_window is None:
             QMessageBox.warning(self.microview, "No Window", "No active window in MicroView")
             return
 
         try:
-            microview_image = g.m.window_manager.current_window.image
+            microview_image = g.m.window_management.current_window.image
             flika_window = FlikaWindow(microview_image)
             self.flika_windows.append(flika_window)
             QMessageBox.information(self.microview, "Transfer Complete", "Image transferred to Flika successfully")
