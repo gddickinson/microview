@@ -657,7 +657,7 @@ class ParticleAnalysisResults(QDialog):
 
     def plot_centroids(self):
         self.remove_centroids()  # Clear existing centroids
-        current_frame = self.parent.window_manager.current_window.currentIndex
+        current_frame = self.parent.window_management.current_window.currentIndex
 
         if self.options['show_all_frames']:
             df_to_plot = self.df
@@ -666,12 +666,12 @@ class ParticleAnalysisResults(QDialog):
 
         for _, row in df_to_plot.iterrows():
             centroid = pg.ScatterPlotItem([row['centroid-1']], [row['centroid-0']], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0))
-            self.parent.window_manager.current_window.view.addItem(centroid)
+            self.parent.window_management.current_window.view.addItem(centroid)
             self.centroid_items.append(centroid)
 
     def remove_centroids(self):
         for item in self.centroid_items:
-            self.parent.window_manager.current_window.view.removeItem(item)
+            self.parent.window_management.current_window.view.removeItem(item)
         self.centroid_items.clear()
 
     def choose_marker_color(self):

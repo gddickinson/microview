@@ -6,7 +6,7 @@ Created on Thu Aug  1 08:33:31 2024
 @author: george
 """
 
-# window_manager.py
+# window_management.py
 from PyQt5.QtWidgets import QApplication
 from flika_compatibility import FlikaMicroViewWindow, FLIKA_AVAILABLE
 

@@ -45,9 +45,14 @@ class ImageWindow(QMainWindow):
         # Set a default size for the window
         self.resize(800, 600)
 
+    # def update_frame_info(self):
+    #     self.timeChanged.emit(self.currentIndex)
+
+
     def onTimeChanged(self):
         self.currentIndex = int(self.imageView.timeLine.value())
         self.timeChanged.emit(self.currentIndex)
+
 
     def getImageItem(self):
         return self.imageView.imageItem

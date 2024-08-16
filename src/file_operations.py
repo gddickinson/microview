@@ -59,7 +59,7 @@ class FileOperations:
         self.parent.recent_files.insert(0, fileName)
         self.parent.recent_files = self.parent.recent_files[:10]  # Keep only 10 most recent
         self.parent.update_recent_files_menu()
-        self.parent.config_manager.save_config()
+        self.parent.config_management.save_config()
 
     def save_file(self):
         if self.parent.window_management.current_window:
@@ -70,7 +70,7 @@ class FileOperations:
 
     def save_rois(self, filename):
         try:
-            current_window = self.parent.window_manager.current_window
+            current_window = self.parent.window_management.current_window
             if current_window is None or not hasattr(current_window, 'rois'):
                 logger.warning("No ROIs to save.")
                 return
@@ -97,7 +97,7 @@ class FileOperations:
                 roi_data = json.load(f)
 
             rois = []
-            current_window = self.parent.window_manager.current_window
+            current_window = self.parent.window_management.current_window
 
             if current_window is None:
                 logger.warning("No current window to add ROIs to.")

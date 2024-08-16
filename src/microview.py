@@ -99,8 +99,8 @@ class MicroView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.logger = LoggingOperations.setup_logging()
-        self.config_manager = ConfigManagement(self)
-        self.config_manager.load_config()
+        self.config_management = ConfigManagement(self)
+        self.config_management.load_config()
         self.ui_operations = UIOperations(self)
         self.plugin_management = PluginManagement(self)
         self.window_management = WindowManagementOperations(self)
@@ -188,6 +188,7 @@ class MicroView(QMainWindow):
         self.analysis_operations = AnalysisOperations(self)
         self.roi_operations = ROIOperations(self)
         self.particle_analysis_operations = ParticleAnalysisOperations(self)
+        self.scikit_analysis_console = ScikitAnalysisConsole
 
         logger.info("Built-in operations loaded")
 
@@ -274,7 +275,7 @@ class MicroView(QMainWindow):
         self.plugin_management.close_all_plugins()
 
     def save_config(self):
-        self.config_manager.save_config()
+        self.config_management.save_config()
 
     def set_current_window(self, window):
         self.window_management.set_current_window(window)
@@ -320,7 +321,9 @@ class MicroView(QMainWindow):
 
     def on_time_slider_changed(self):
         if self.window_management.current_window:
-            self.window_management.current_window.update_frame_info()
+            self.update_frame_info(self.window_management.current_window.currentIndex)
+            if self.particle_analysis_operations.toggle_centroids_button.isChecked():
+                self.particle_analysis_operations.plot_centroids(self.window_management.current_window)
 
 
     def setupPluginDock(self):
@@ -410,17 +413,16 @@ class MicroView(QMainWindow):
             pass
 
     def update_mouse_position(self, pos):
-        if self.window_manager.current_window:
-            image_pos = self.window_manager.current_window.imageView.getImageItem().mapFromScene(pos)
-            # ... rest of the method
+        if self.window_management.current_window:
+            image_pos = self.window_management.current_window.imageView.getImageItem().mapFromScene(pos)
             x, y = int(image_pos.x()), int(image_pos.y())
 
-            image = self.window_manager.current_window.image
+            image = self.window_management.current_window.image
 
             if image.ndim == 3:
                 if 0 <= x < image.shape[2] and 0 <= y < image.shape[1]:
                     self.info_panel.update_mouse_info(x, y)
-                    current_frame = self.window_manager.current_window.currentIndex
+                    current_frame = self.window_management.current_window.currentIndex
                     intensity = image[current_frame, y, x]
                     self.info_panel.update_intensity(intensity)
                     self.z_profile_widget.update_profile(image, x, y)
@@ -440,7 +442,7 @@ class MicroView(QMainWindow):
                     self.z_profile_widget.clear_profile()
 
     def update_roi_info(self, roi):
-        if roi is not None and self.window_manager.current_window:
+        if roi is not None and self.window_management.current_window:
             roi_data = roi.get_roi_data()
             self.roi_info_widget.update_roi_info(roi_data)
             self.roi_zoom_view.setImage(roi_data)
@@ -450,11 +452,10 @@ class MicroView(QMainWindow):
             self.roi_info_widget.update_roi_info(None)
             self.roi_zoom_view.clear()
 
-
     def update_frame_info(self, frame):
-        if self.window_manager.current_window:
-            self.info_panel.update_info(self.window_manager.current_window)
-            self.window_manager.current_window.update_status_bar()
+        if self.window_management.current_window:
+            self.info_panel.update_info(self.window_management.current_window)
+            self.window_management.current_window.update_status_bar()
 
     def get_plugins(self):
         return self.plugins
@@ -469,8 +470,8 @@ class MicroView(QMainWindow):
         pass
 
     def particleAnalysis(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
+        if self.window_management.current_window:
+            image = self.window_management.current_window.image
             threshold = filters.threshold_otsu(image)
             binary = image > threshold
             labeled = measure.label(binary)
@@ -593,9 +594,9 @@ class MicroView(QMainWindow):
             self.particle_count_label.setText(f"Particles in frame: {particle_count}")
 
     def removeROI(self, roi):
-        if self.window_manager.current_window:
+        if self.window_management.current_window:
             try:
-                image_window = self.window_manager.current_window
+                image_window = self.window_management.current_window
                 image_view = image_window.imageView
                 image_window.getView().removeItem(roi)
                 image_window.rois.remove(roi)
@@ -665,7 +666,7 @@ class MicroView(QMainWindow):
                 roi_data = json.load(f)
 
             rois = []
-            current_window = self.window_manager.current_window
+            current_window = self.window_management.current_window
 
             if current_window is None:
                 logger.warning("No current window to add ROIs to.")
@@ -703,7 +704,7 @@ class MicroView(QMainWindow):
 
     def save_rois(self, filename):
         try:
-            current_window = self.window_manager.current_window
+            current_window = self.window_management.current_window
             if current_window is None or not hasattr(current_window, 'rois'):
                 logger.warning("No ROIs to save.")
                 return
@@ -728,7 +729,7 @@ class MicroView(QMainWindow):
     def add_flika_window(self, flika_window):
         self.flika_windows.append(flika_window)
         # Instead of adding the FlikaMicroViewWindow directly, we'll add its Flika window
-        self.window_manager.add_window(flika_window.flika_window)
+        self.window_management.add_window(flika_window.flika_window)
         # Connect Flika window signals to MicroView slots if needed
         flika_window.timeChanged.connect(self.on_time_slider_changed)
 
@@ -833,19 +834,19 @@ class MicroView(QMainWindow):
         print(f"Result in MicroView - Shape: {result.shape}, dtype: {result.dtype}")
         print(f"Result stats - Min: {np.min(result)}, Max: {np.max(result)}, Mean: {np.mean(result)}")
         window = ImageWindow(result, "Analysis Result")
-        self.window_manager.add_window(window)
+        self.window_management.add_window(window)
         self.set_current_window(window)
 
     def open_transformations_dialog(self):
-        if self.window_manager.current_window:
-            dialog = TransformationsDialog(self.window_manager.current_window.image, self)
+        if self.window_management.current_window:
+            dialog = TransformationsDialog(self.window_management.current_window.image, self)
             dialog.transformationApplied.connect(self.apply_transformation)
             dialog.exec_()
 
     def apply_transformation(self, transformed_data):
-        if self.window_manager.current_window:
-            self.window_manager.current_window.setImage(transformed_data)
-            self.info_panel.update_info(self.window_manager.current_window)
+        if self.window_management.current_window:
+            self.window_management.current_window.setImage(transformed_data)
+            self.info_panel.update_info(self.window_management.current_window)
 
     def open_synthetic_data_dialog(self):
         dialog = SyntheticDataDialog(self)
@@ -854,7 +855,7 @@ class MicroView(QMainWindow):
 
     def create_synthetic_data_window(self, data):
         window = ImageWindow(data, "Synthetic Data")
-        self.window_manager.add_window(window)
+        self.window_management.add_window(window)
         self.set_current_window(window)
 
 

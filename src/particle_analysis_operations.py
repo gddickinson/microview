@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QPushButton, QMessageBox
 from particle_analysis import ParticleAnalysisResults
 import pyqtgraph as pg
 import numpy as np
@@ -6,14 +6,18 @@ import numpy as np
 class ParticleAnalysisOperations:
     def __init__(self, parent):
         self.parent = parent
+        self.toggle_centroids_button = QPushButton("Toggle Centroids")
+        self.toggle_centroids_button.setCheckable(True)
+        self.toggle_centroids_button.toggled.connect(self.toggle_centroids)
+        self.toggle_centroids_button.setEnabled(False)
 
     def run_particle_analysis(self):
-        if self.parent.window_manager.current_window is None:
+        if self.parent.window_management.current_window is None:
             QMessageBox.warning(self.parent, "No Image", "Please open an image first.")
             return
 
         try:
-            image = self.parent.window_manager.current_window.image
+            image = self.parent.window_management.current_window.image
             analysis_dialog = ParticleAnalysisResults(self.parent, image)
             analysis_dialog.analysisComplete.connect(self.parent.on_particle_analysis_complete)
             analysis_dialog.exec_()
@@ -93,13 +97,12 @@ class ParticleAnalysisOperations:
         return window
 
     def toggle_centroids(self, checked):
-        if self.parent.particle_analysis_results is not None:
-            current_window = self.parent.window_manager.current_window
-            if current_window:
-                if checked:
-                    self.plot_centroids(current_window)
-                else:
-                    self.remove_centroids(current_window)
+        if self.parent.window_management.current_window:
+            if checked:
+                self.plot_centroids(self.parent.window_management.current_window)
+            else:
+                self.remove_centroids(self.parent.window_management.current_window)
+
 
     def remove_centroids(self, window):
         if hasattr(window, 'centroid_items'):
@@ -139,6 +142,6 @@ class ParticleAnalysisOperations:
 
     def on_time_slider_changed(self):
         if self.parent.toggle_centroids_button.isChecked():
-            current_window = self.parent.window_manager.current_window
+            current_window = self.parent.window_management.current_window
             if current_window:
                 self.plot_centroids(current_window)
