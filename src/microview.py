@@ -68,7 +68,7 @@ from variable_management import VariableManagement
 from console_operations import ConsoleOperations
 from menu_operations import MenuOperations
 from metadata_operations import MetadataOperations
-
+from point_data_manager import PointDataManager
 
 #setup loggin
 logger = setup_logging()
@@ -109,6 +109,9 @@ class MicroView(QMainWindow):
         self.variable_management = VariableManagement(self)
         self.menu_operations = MenuOperations(self)
         self.metadata_operations = MetadataOperations(self)
+        self.point_data_manager = PointDataManager()
+        self.point_data_manager.data_changed.connect(self.update_point_displays)
+
         self.in_spyder = get_ipython().__class__.__name__ == 'SpyderShell'
         self.filters = Filters(self)
         self.particle_analysis_results = None
@@ -226,14 +229,26 @@ class MicroView(QMainWindow):
         self.analysis_operations.findMaxima()
 
     def run_particle_analysis(self):
-        self.particle_analysis_operations.run_particle_analysis()
+        if self.window_management.current_window is None:
+            QMessageBox.warning(self, "No Image", "Please open an image first.")
+            return
+
+        try:
+            image = self.window_management.current_window.image
+            analysis_dialog = ParticleAnalysisResults(self, image)
+            analysis_dialog.analysisComplete.connect(self.on_particle_analysis_complete)
+            analysis_dialog.exec_()
+        except Exception as e:
+            print(f"Error in particle analysis: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error in particle analysis: {str(e)}")
+
 
     def toggle_results_chart(self, checked):
         self.particle_analysis_operations.toggle_results_chart(checked)
 
     def toggle_centroids(self, checked):
+        logger.info(f"MicroView toggle_centroids called with checked={checked}")
         self.particle_analysis_operations.toggle_centroids(checked)
-
 
     def colocalization_analysis(self):
         self.analysis_operations.colocalization_analysis()
@@ -278,7 +293,27 @@ class MicroView(QMainWindow):
         self.config_management.save_config()
 
     def set_current_window(self, window):
-        self.window_management.set_current_window(window)
+        if self.window_management.current_window:
+            # Safely disconnect signals from the old current window
+            self.safe_disconnect(self.window_management.current_window.imageView.scene.sigMouseMoved, self.update_mouse_position)
+            self.safe_disconnect(self.window_management.current_window.timeChanged, self.update_frame_info)
+            self.safe_disconnect(self.window_management.current_window.roiChanged, self.update_roi_info)
+            self.safe_disconnect(self.window_management.current_window.timeChanged, self.on_time_slider_changed)
+            self.window_management.current_window.set_as_current(False)
+
+        self.window_management.current_window = window
+        self.window_management.current_window_changed.emit(window)
+
+        if window:
+            # Connect signals to the new current window
+            window.imageView.scene.sigMouseMoved.connect(self.update_mouse_position)
+            window.timeChanged.connect(self.update_frame_info)
+            window.roiChanged.connect(self.update_roi_info)
+            window.timeChanged.connect(self.on_time_slider_changed)
+            window.set_as_current(True)
+
+        self.update_frame_info(0)
+        self.update_roi_info(None)  # Clear ROI info when changing windows
 
     def add_window(self, window):
         return self.window_management.add_window(window)
@@ -320,11 +355,12 @@ class MicroView(QMainWindow):
         self.menu_manager.update_recent_files_menu()
 
     def on_time_slider_changed(self):
+        logger.info("Time slider changed")
         if self.window_management.current_window:
-            self.update_frame_info(self.window_management.current_window.currentIndex)
-            if self.particle_analysis_operations.toggle_centroids_button.isChecked():
+            current_frame = self.window_management.current_window.currentIndex
+            self.update_frame_info(current_frame)
+            if self.particle_analysis_operations.centroids_visible:
                 self.particle_analysis_operations.plot_centroids(self.window_management.current_window)
-
 
     def setupPluginDock(self):
         self.plugin_dock= QDockWidget("Plugins", self)
@@ -480,11 +516,29 @@ class MicroView(QMainWindow):
                 print(f"Area: {prop.area}, Centroid: {prop.centroid}")
 
     def on_particle_analysis_complete(self, df):
+        logger.info("Particle analysis complete")
+        logger.info(f"Received DataFrame with shape: {df.shape}")
+        logger.info(f"Columns in DataFrame: {df.columns.tolist()}")
+        logger.info(f"First few rows of DataFrame:\n{df.head()}")
+
+        # Ensure the DataFrame has the correct column names
+        if 'centroid-1' in df.columns and 'centroid-0' in df.columns:
+            df = df.rename(columns={'centroid-1': 'x', 'centroid-0': 'y'})
+            logger.info("Renamed 'centroid-1' to 'x' and 'centroid-0' to 'y'")
+
         self.particle_analysis_results = df
-        print(f"Received particle analysis results with {len(df)} particles")  # Debug print
-        print(f"Columns in results: {df.columns}")  # Debug print
+        self.particle_analysis_operations.update_point_data_manager(df)
+
+        logger.info(f"Updated particle_analysis_results with {len(df)} particles")
+        logger.info(f"Columns in particle_analysis_results: {self.particle_analysis_results.columns.tolist()}")
+
         self.toggle_chart_button.setEnabled(True)
         self.toggle_centroids_button.setEnabled(True)
+
+        # Plot centroids if the toggle is checked
+        if self.toggle_centroids_button.isChecked():
+            self.particle_analysis_operations.plot_centroids(self.window_management.current_window)
+
         QMessageBox.information(self, "Analysis Complete", f"Found {len(df)} particles.")
 
 
@@ -554,44 +608,44 @@ class MicroView(QMainWindow):
         if hasattr(self, 'results_chart_window'):
             self.results_chart_window.hide()
 
-    def remove_centroids(self, window):
-        if hasattr(window, 'centroid_items'):
-            for item in window.centroid_items:
-                window.get_view().removeItem(item)
-            window.centroid_items.clear()
+    # def remove_centroids(self, window):
+    #     if hasattr(window, 'point_items'):
+    #         for item in window.point_items:
+    #             window.get_view().removeItem(item)
+    #         window.point_items.clear()
 
-    def plot_centroids(self, window):
-        if not hasattr(window, 'centroid_items'):
-            window.centroid_items = []
+    # def plot_centroids(self, window):
+    #     if not hasattr(window, 'centroid_items'):
+    #         window.centroid_items = []
 
-        self.remove_centroids(window)  # Clear existing centroids
+    #     self.remove_centroids(window)  # Clear existing centroids
 
-        current_frame = window.get_current_frame()
-        frame_particles = self.particle_analysis_results[self.particle_analysis_results['frame'] == current_frame]
+    #     current_frame = window.get_current_frame()
+    #     frame_particles = self.particle_analysis_results[self.particle_analysis_results['frame'] == current_frame]
 
-        print(f"Plotting {len(frame_particles)} particles for frame {current_frame}")  # Debug print
+    #     print(f"Plotting {len(frame_particles)} particles for frame {current_frame}")  # Debug print
 
-        is_trackpy = 'particle' in self.particle_analysis_results.columns  # Check if trackpy was used
+    #     is_trackpy = 'particle' in self.particle_analysis_results.columns  # Check if trackpy was used
 
-        for _, row in frame_particles.iterrows():
-            color = pg.intColor(row['particle'], hues=50, alpha=120) if is_trackpy else pg.mkBrush(255, 0, 0, 120)
+    #     for _, row in frame_particles.iterrows():
+    #         color = pg.intColor(row['particle'], hues=50, alpha=120) if is_trackpy else pg.mkBrush(255, 0, 0, 120)
 
-            centroid = pg.ScatterPlotItem([row['centroid-1']], [row['centroid-0']], size=10, pen=pg.mkPen(None), brush=color)
-            window.get_view().addItem(centroid)
-            window.centroid_items.append(centroid)
+    #         centroid = pg.ScatterPlotItem([row['centroid-1']], [row['centroid-0']], size=10, pen=pg.mkPen(None), brush=color)
+    #         window.get_view().addItem(centroid)
+    #         window.centroid_items.append(centroid)
 
-            if is_trackpy:
-                # Add trajectory if trackpy was used
-                trajectory = self.particle_analysis_results[self.particle_analysis_results['particle'] == row['particle']]
-                trajectory = trajectory[trajectory['frame'] <= current_frame]  # Only show up to current frame
-                if len(trajectory) > 1:
-                    trajectory_item = pg.PlotDataItem(trajectory['centroid-1'], trajectory['centroid-0'], pen=color)
-                    window.get_view().addItem(trajectory_item)
-                    window.centroid_items.append(trajectory_item)
+    #         if is_trackpy:
+    #             # Add trajectory if trackpy was used
+    #             trajectory = self.particle_analysis_results[self.particle_analysis_results['particle'] == row['particle']]
+    #             trajectory = trajectory[trajectory['frame'] <= current_frame]  # Only show up to current frame
+    #             if len(trajectory) > 1:
+    #                 trajectory_item = pg.PlotDataItem(trajectory['centroid-1'], trajectory['centroid-0'], pen=color)
+    #                 window.get_view().addItem(trajectory_item)
+    #                 window.centroid_items.append(trajectory_item)
 
-        if hasattr(self, 'particle_count_label'):
-            particle_count = len(frame_particles)
-            self.particle_count_label.setText(f"Particles in frame: {particle_count}")
+    #     if hasattr(self, 'particle_count_label'):
+    #         particle_count = len(frame_particles)
+    #         self.particle_count_label.setText(f"Particles in frame: {particle_count}")
 
     def removeROI(self, roi):
         if self.window_management.current_window:
@@ -858,6 +912,35 @@ class MicroView(QMainWindow):
         self.window_management.add_window(window)
         self.set_current_window(window)
 
+    def update_point_displays(self):
+        """Update all displays that show point data."""
+        if self.window_management.current_window:
+            current_frame = self.window_management.current_window.currentIndex
+            self.particle_analysis_operations.plot_points(self.window_management.current_window, current_frame)
+
+    def plot_points(self, window, current_frame):
+        """Plot points on the current window."""
+        if not hasattr(window, 'point_items'):
+            window.point_items = []
+
+        # Clear existing points
+        for item in window.point_items:
+            window.get_view().removeItem(item)
+        window.point_items.clear()
+
+        # Get points for the current frame
+        frame_points = self.point_data_manager.get_points_in_frame(current_frame)
+
+        # Plot new points
+        for _, point in frame_points.iterrows():
+            point_item = pg.ScatterPlotItem([point['x']], [point['y']], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0, 120))
+            window.get_view().addItem(point_item)
+            window.point_items.append(point_item)
+
+        # Update particle count label
+        if hasattr(self, 'particle_count_label'):
+            particle_count = len(frame_points)
+            self.particle_count_label.setText(f"Particles in frame: {particle_count}")
 
 
 # At the end of the file, after the MicroView class definition

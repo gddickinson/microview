@@ -10,8 +10,6 @@ import numpy as np
 from PyQt5.QtWidgets import (QTableView, QVBoxLayout, QWidget, QDialog, QFormLayout,
                              QLineEdit, QPushButton, QCheckBox, QSpinBox, QDoubleSpinBox, QDialogButtonBox, QComboBox,
                              QHBoxLayout, QLabel, QMessageBox, QColorDialog)
-
-
 from PyQt5.QtCore import QAbstractTableModel, Qt, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -20,6 +18,14 @@ import pyqtgraph as pg
 from skimage import filters, measure, exposure
 import trackpy as tp
 from PyQt5.QtGui import QColor
+
+# Import the existing PointDataManager
+from point_data_manager import PointDataManager
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class PandasModel(QAbstractTableModel):
     def __init__(self, data):
@@ -52,7 +58,7 @@ class ParticleAnalysisResults(QDialog):
         self.parent = parent
         self.original_image = image
         self.processed_image = None
-        self.df = None
+        self.point_data_manager = PointDataManager()
         self.options = {
             'detection_method': 'threshold',
             'min_area': 5,
@@ -80,7 +86,7 @@ class ParticleAnalysisResults(QDialog):
         noise_level = np.std(sample_frame[sample_frame < otsu_threshold])
         self.options['threshold_factor'] = 1.0
         self.options['noise_size'] = int(np.mean([0,noise_level]))
-        self.options['min_mass'] = int(otsu_threshold * 5)
+        self.options['min_mass'] = int(otsu_threshold)
         self.options['max_mass'] = int(otsu_threshold * 50)
 
     def setup_ui(self):
@@ -223,9 +229,10 @@ class ParticleAnalysisResults(QDialog):
         self.update_preview()
 
     def update_preview(self):
+        logger.info("Entering update_preview method")
         # Update options from UI
         self.options['detection_method'] = self.detection_method.currentText()
-        print(f"Detection method updated to: {self.options['detection_method']}")
+        logger.info(f"Detection method updated to: {self.options['detection_method']}")
         self.options['min_area'] = self.min_area.value()
         self.options['max_area'] = self.max_area.value()
         self.options['threshold_method'] = self.threshold_method.currentText()
@@ -245,10 +252,15 @@ class ParticleAnalysisResults(QDialog):
 
         # Get current frame
         current_frame = int(self.frame_selector.currentText())
+        logger.info(f"Processing frame {current_frame}")
         frame = self.original_image[current_frame]
 
-        # Process frame
-        processed_frame, particles = self.process_frame(frame)
+         # Process frame
+        processed_frame, particles = self.process_frame(self.original_image[current_frame])
+
+        logger.info(f"Processed frame shape: {processed_frame.shape}")
+        logger.info(f"Particles DataFrame shape: {particles.shape}")
+        logger.info(f"Particles columns: {particles.columns.tolist()}")
 
         # Update preview image
         self.image_item.setImage(processed_frame)
@@ -256,31 +268,38 @@ class ParticleAnalysisResults(QDialog):
 
         # Update particle positions
         if particles is not None and not particles.empty:
-            self.scatter_plot.setData(particles['centroid-1'], particles['centroid-0'],
-                                      size=self.options['marker_size'],
-                                      brush=pg.mkBrush(self.options['marker_color']))
-            print(f"Updated preview with {len(particles)} particles")
+            logger.info("Updating scatter plot with particle data")
+            try:
+                self.scatter_plot.setData(particles['x'], particles['y'],
+                                          size=self.options['marker_size'],
+                                          brush=pg.mkBrush(self.options['marker_color']))
+                logger.info(f"Updated preview with {len(particles)} particles")
+            except KeyError as e:
+                logger.error(f"KeyError when setting scatter plot data: {str(e)}")
+                logger.error(f"Particles DataFrame:\n{particles.head()}")
         else:
+            logger.info("No particles to display in preview")
             self.scatter_plot.clear()
-            print("No particles to display in preview")
 
         # Update histogram
         self.hist.setLevels(processed_frame.min(), processed_frame.max())
+        logger.info("Finished update_preview method")
 
     def process_frame(self, frame):
-        print(f"Processing frame with method: {self.options['detection_method']}")
+        logger.info(f"Processing frame with method: {self.options['detection_method']}")
         if self.options['detection_method'] == 'threshold':
             return self.process_frame_threshold(frame)
         elif self.options['detection_method'] == 'trackpy':
             return self.process_frame_trackpy(frame)
         else:
+            logger.error(f"Unknown detection method: {self.options['detection_method']}")
             raise ValueError(f"Unknown detection method: {self.options['detection_method']}")
 
     def process_frame_trackpy(self, frame):
         print("Inside process_frame_trackpy")  # Debug print
 
         # Convert frame to the correct data type for trackpy
-        frame = frame.astype(np.uint8)
+        #frame = frame.astype(np.uint8)
 
         # Calculate diameter and ensure it's an odd integer
         diameter = max(3, int(2 * np.sqrt(self.options['min_area'] / np.pi)))
@@ -313,10 +332,12 @@ class ParticleAnalysisResults(QDialog):
         else:
             print("No particles found. Consider adjusting parameters.")
 
-         # Convert trackpy results to use 'centroid-0' and 'centroid-1'
         particles = pd.DataFrame({
-            'centroid-0': features['y'],
-            'centroid-1': features['x'],
+            'frame': np.full(len(features), self.current_frame),
+            'x': features['x'],
+            'y': features['y'],
+            'z': np.zeros(len(features)),
+            't': np.full(len(features), self.current_frame),
             'area': features['size'],
             'mean_intensity': features['mass'] / features['size'],
             'mass': features['mass']
@@ -334,9 +355,13 @@ class ParticleAnalysisResults(QDialog):
 
             print(f"Area filtered {len(particles)} particles for preview")  # Debug print
 
+        self.point_data_manager.add_points(particles[['frame', 'x', 'y', 'z', 't']].values,
+                                           additional_data={col: particles[col].values for col in particles.columns if col not in ['frame', 'x', 'y', 'z', 't']})
+
         return frame, particles
 
     def process_frame_threshold(self, frame):
+        logger.info("Entering process_frame_threshold method")
         img = frame.copy()
 
         if self.options['apply_noise_reduction']:
@@ -359,8 +384,12 @@ class ParticleAnalysisResults(QDialog):
         props = measure.regionprops_table(labeled, img, properties=['label', 'area', 'centroid', 'mean_intensity'])
         df = pd.DataFrame(props)
 
+        # Rename centroid columns for consistency
+        df = df.rename(columns={'centroid-0': 'y', 'centroid-1': 'x'})
+
         if self.options['apply_mass_filter']:
             df['mass'] = df['area'] * df['mean_intensity']
+
         # Apply area filter if checkbox is checked
         if self.apply_area_filter.isChecked():
             df = df[(df['area'] >= self.options['min_area']) &
@@ -368,24 +397,38 @@ class ParticleAnalysisResults(QDialog):
                     (df['mass'] >= self.options['min_mass']) &
                     (df['mass'] <= self.options['max_mass'])]
 
-        # Keep using 'centroid-0' and 'centroid-1'
-        particles = pd.DataFrame({
-            'centroid-0': df['centroid-0'],
-            'centroid-1': df['centroid-1'],
-            'area': df['area'],
-            'mean_intensity': df['mean_intensity'],
-            'mass': df['area'] * df['mean_intensity']
-        })
+        if len(df) > 0:
+            particles = pd.DataFrame({
+                'x': df['x'],
+                'y': df['y'],
+                'z': np.zeros(len(df)),
+                't': np.full(len(df), self.current_frame),
+                'area': df['area'],
+                'mean_intensity': df['mean_intensity']
+            })
 
+            if 'mass' in df.columns:
+                particles['mass'] = df['mass']
+            else:
+                particles['mass'] = df['area'] * df['mean_intensity']
+
+            logger.info(f"Created particles DataFrame with shape: {particles.shape}")
+            logger.info(f"Particles columns: {particles.columns.tolist()}")
+            logger.info(f"First particle: {particles.iloc[0].to_dict()}")
+        else:
+            logger.info(f"No particles found for frame {self.current_frame}")
+            particles = pd.DataFrame(columns=['x', 'y', 'z', 't', 'area', 'mean_intensity', 'mass'])
+
+        logger.info("Exiting process_frame_threshold method")
         return img, particles
 
 
     def apply_to_all_frames(self):
-        print(f"Applying to all frames with method: {self.options['detection_method']}")  # Debug print
-        if self.options['detection_method'] == 'trackpy':
-            print("Using trackpy batch processing")  # Debug print
+        logger.info(f"Applying to all frames with method: {self.options['detection_method']}")
+        self.point_data_manager.clear_points()
 
-            # Use trackpy batch processing
+        if self.options['detection_method'] == 'trackpy':
+            logger.info("Using trackpy batch processing")
             features = tp.batch(self.original_image,
                                 diameter=self.options['diameter'],
                                 minmass=self.options['min_mass'],
@@ -398,60 +441,81 @@ class ParticleAnalysisResults(QDialog):
                                 characterize=True,
                                 processes='auto')
 
-            # Ensure consistent column names
-            self.df = pd.DataFrame({
-                'frame': features['frame'],
-                'y': features['y'],
-                'x': features['x'],
-                'centroid-0': features['y'],
-                'centroid-1': features['x'],
-                'area': features['size'],
-                'mean_intensity': features['mass'] / features['size'],
-                'mass': features['mass']
-            })
+            logger.info(f"Trackpy features shape: {features.shape}")
+            logger.info(f"Trackpy features columns: {features.columns.tolist()}")
+
+            # Prepare the data for PointDataManager
+            points_data = features[['frame', 'x', 'y']].values
+            additional_data = {
+                'mass': features['mass'].values,
+                'size': features['size'].values,
+                # Add any other relevant columns from trackpy output
+            }
+
+            self.point_data_manager.add_points(points_data, additional_data=additional_data)
 
             # Apply area filter if checkbox is checked
             if self.apply_area_filter.isChecked():
                 min_area = self.min_area.value()
                 max_area = self.max_area.value()
-                self.df = self.df[(self.df['area'] >= min_area) & (self.df['area'] <= max_area)]
+                filtered_data = self.point_data_manager.data[
+                    (self.point_data_manager.data['size'] >= min_area) &
+                    (self.point_data_manager.data['size'] <= max_area)
+                ]
+                self.point_data_manager.data = filtered_data.reset_index(drop=True)
 
-            print(f"Particles after area filter: {len(self.df)}")  # Debug print
+            logger.info(f"Particles after area filter: {len(self.point_data_manager.data)}")
 
             # Link particles if checkbox is checked
             if self.apply_linking.isChecked():
-                print("Linking particles...")  # Debug print
+                logger.info("Linking particles...")
                 search_range = self.options['diameter']
                 memory = 3
-                linked = tp.link(self.df, search_range=search_range, memory=memory)
-                self.df = pd.merge(self.df, linked[['particle']], left_index=True, right_index=True)
+                linked = tp.link(self.point_data_manager.data, search_range=search_range, memory=memory)
+                self.point_data_manager.data = pd.merge(self.point_data_manager.data, linked[['particle']], left_index=True, right_index=True)
 
                 # Filter trajectories if checkbox is checked
                 if self.apply_trajectory_filter.isChecked():
-                    print("Filtering trajectories...")  # Debug print
-                    self.df = tp.filter_stubs(self.df, threshold=5)
+                    logger.info("Filtering trajectories...")
+                    self.point_data_manager.data = tp.filter_stubs(self.point_data_manager.data, threshold=5)
             else:
                 # If not linking, assign a unique particle ID to each detection
-                self.df['particle'] = range(len(self.df))
+                self.point_data_manager.data['particle'] = range(len(self.point_data_manager.data))
 
         else:
-            print("Using threshold batch processing")  # Debug print
-            # Existing threshold-based method
-            results = []
+            logger.info("Using threshold batch processing")
             for frame in range(self.original_image.shape[0]):
+                self.current_frame = frame
                 img = self.original_image[frame]
                 _, particles = self.process_frame(img)
-                particles['frame'] = frame
-                results.append(particles)
-            self.df = pd.concat(results).reset_index(drop=True)
-            # Assign a unique particle ID to each detection
-            self.df['particle'] = range(len(self.df))
 
+                logger.info(f"Frame {frame}: Processed particles shape: {particles.shape}")
+                logger.info(f"Frame {frame}: Particles columns: {particles.columns.tolist()}")
 
-        print(f"Analysis complete. Found {len(self.df)} particles across all frames.")  # Debug print
-        print(f"Columns in final DataFrame: {self.df.columns.tolist()}")  # Debug print
-        print(f"First few rows of final DataFrame:\n{self.df.head()}")  # Debug print
-        self.analysisComplete.emit(self.df)
+                if not particles.empty:
+                    additional_data = {'frame': np.full(len(particles), frame)}
+
+                    # Check for each column and add it if present
+                    for col in ['area', 'mean_intensity', 'mass']:
+                        if col in particles.columns:
+                            additional_data[col] = particles[col].values
+                        else:
+                            logger.warning(f"Column '{col}' not found in particles DataFrame for frame {frame}")
+
+                    self.point_data_manager.add_points(particles[['x', 'y', 'z', 't']].values,
+                                                       additional_data=additional_data)
+
+                    logger.info(f"Frame {frame}: Added {len(particles)} particles")
+                else:
+                    logger.info(f"Frame {frame}: No particles found")
+
+        if not self.point_data_manager.data.empty:
+            self.point_data_manager.data['particle'] = range(len(self.point_data_manager.data))
+
+        logger.info(f"Analysis complete. Found {len(self.point_data_manager.data)} particles across all frames.")
+        logger.info(f"Columns in final DataFrame: {self.point_data_manager.data.columns.tolist()}")
+        logger.info(f"First few rows of final DataFrame:\n{self.point_data_manager.data.head()}")
+        self.analysisComplete.emit(self.point_data_manager.data)
         self.accept()
 
     def run_analysis(self):
@@ -656,18 +720,20 @@ class ParticleAnalysisResults(QDialog):
             self.remove_centroids()
 
     def plot_centroids(self):
-        self.remove_centroids()  # Clear existing centroids
+        self.remove_centroids()
         current_frame = self.parent.window_management.current_window.currentIndex
 
         if self.options['show_all_frames']:
-            df_to_plot = self.df
+            df_to_plot = self.point_data_manager.get_points()
         else:
-            df_to_plot = self.df[self.df['frame'] == current_frame]
+            df_to_plot = self.point_data_manager.get_points(frame=current_frame)
 
         for _, row in df_to_plot.iterrows():
-            centroid = pg.ScatterPlotItem([row['centroid-1']], [row['centroid-0']], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0))
+            centroid = pg.ScatterPlotItem([row['x']], [row['y']], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0))
             self.parent.window_management.current_window.view.addItem(centroid)
             self.centroid_items.append(centroid)
+
+        print(f"Plotted {len(df_to_plot)} centroids for frame {current_frame}")
 
     def remove_centroids(self):
         for item in self.centroid_items:
