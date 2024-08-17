@@ -5,6 +5,10 @@ import numpy as np
 from roi import RectROI, EllipseROI, LineROI
 from roi_info import ROIInfoWidget
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class ImageWindow(QMainWindow):
     timeChanged = pyqtSignal(int)
     windowSelected = pyqtSignal(object)
@@ -58,7 +62,9 @@ class ImageWindow(QMainWindow):
         return self.imageView.imageItem
 
     def getView(self):
-        return self.imageView.view
+        view = self.imageView.view
+        logger.info(f"Image view range: x={view.viewRange()[0]}, y={view.viewRange()[1]}")
+        return view
 
     def set_as_current(self, is_current):
         self.is_current = is_current

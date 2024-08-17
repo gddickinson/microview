@@ -399,25 +399,25 @@ class ParticleAnalysisResults(QDialog):
 
         if len(df) > 0:
             particles = pd.DataFrame({
+                'frame': np.full(len(df), self.current_frame),
                 'x': df['x'],
                 'y': df['y'],
                 'z': np.zeros(len(df)),
                 't': np.full(len(df), self.current_frame),
                 'area': df['area'],
-                'mean_intensity': df['mean_intensity']
+                'mean_intensity': df['mean_intensity'],
+                'mass': df['mass'] if 'mass' in df.columns else df['area'] * df['mean_intensity']
             })
 
-            if 'mass' in df.columns:
-                particles['mass'] = df['mass']
-            else:
-                particles['mass'] = df['area'] * df['mean_intensity']
-
-            logger.info(f"Created particles DataFrame with shape: {particles.shape}")
+            logger.info(f"Processed frame {self.current_frame}:")
+            logger.info(f"Number of particles: {len(particles)}")
+            logger.info(f"Particle data sample:\n{particles.head()}")
+            logger.info(f"Y-coordinate range: {particles['y'].min()} to {particles['y'].max()}")
             logger.info(f"Particles columns: {particles.columns.tolist()}")
             logger.info(f"First particle: {particles.iloc[0].to_dict()}")
         else:
             logger.info(f"No particles found for frame {self.current_frame}")
-            particles = pd.DataFrame(columns=['x', 'y', 'z', 't', 'area', 'mean_intensity', 'mass'])
+            particles = pd.DataFrame(columns=['frame', 'x', 'y', 'z', 't', 'area', 'mean_intensity', 'mass'])
 
         logger.info("Exiting process_frame_threshold method")
         return img, particles
@@ -484,33 +484,28 @@ class ParticleAnalysisResults(QDialog):
 
         else:
             logger.info("Using threshold batch processing")
+            all_particles = []
             for frame in range(self.original_image.shape[0]):
                 self.current_frame = frame
                 img = self.original_image[frame]
                 _, particles = self.process_frame(img)
+                all_particles.append(particles)
 
                 logger.info(f"Frame {frame}: Processed particles shape: {particles.shape}")
                 logger.info(f"Frame {frame}: Particles columns: {particles.columns.tolist()}")
+                logger.info(f"Frame {frame}: First particle: {particles.iloc[0].to_dict() if not particles.empty else 'No particles'}")
 
-                if not particles.empty:
-                    additional_data = {'frame': np.full(len(particles), frame)}
+            all_particles_df = pd.concat(all_particles, ignore_index=True)
+            logger.info("All particles data:")
+            logger.info(f"Shape: {all_particles_df.shape}")
+            logger.info(f"Columns: {all_particles_df.columns.tolist()}")
+            logger.info(f"First few rows:\n{all_particles_df.head()}")
+            logger.info(f"Y-coordinate range: {all_particles_df['y'].min()} to {all_particles_df['y'].max()}")
 
-                    # Check for each column and add it if present
-                    for col in ['area', 'mean_intensity', 'mass']:
-                        if col in particles.columns:
-                            additional_data[col] = particles[col].values
-                        else:
-                            logger.warning(f"Column '{col}' not found in particles DataFrame for frame {frame}")
+            # Assign unique particle IDs
+            all_particles_df['particle'] = range(len(all_particles_df))
 
-                    self.point_data_manager.add_points(particles[['x', 'y', 'z', 't']].values,
-                                                       additional_data=additional_data)
-
-                    logger.info(f"Frame {frame}: Added {len(particles)} particles")
-                else:
-                    logger.info(f"Frame {frame}: No particles found")
-
-        if not self.point_data_manager.data.empty:
-            self.point_data_manager.data['particle'] = range(len(self.point_data_manager.data))
+            self.point_data_manager.add_points(all_particles_df)
 
         logger.info(f"Analysis complete. Found {len(self.point_data_manager.data)} particles across all frames.")
         logger.info(f"Columns in final DataFrame: {self.point_data_manager.data.columns.tolist()}")

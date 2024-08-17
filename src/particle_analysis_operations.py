@@ -121,14 +121,23 @@ class ParticleAnalysisOperations:
             logger.warning(f"No points found for frame {current_frame}")
             return
 
+        logger.info(f"First few points: \n{frame_points[['x', 'y']].head()}")
+
         for _, point in frame_points.iterrows():
-            point_item = pg.ScatterPlotItem([point['x']], [point['y']], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0, 120))
-            window.get_view().addItem(point_item)
+            x, y = point['x'], point['y']
+            logger.info(f"Plotting point at x={x}, y={y}")
+            point_item = pg.ScatterPlotItem([x], [y], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0, 120))
+            view = window.get_view()
+            view.addItem(point_item)
             if not hasattr(window, 'point_items'):
                 window.point_items = []
             window.point_items.append(point_item)
 
         logger.info(f"Plotted {len(window.point_items)} points on the image")
+
+        # Log the view range
+        view_range = window.get_view().viewRange()
+        logger.info(f"View range: x={view_range[0]}, y={view_range[1]}")
 
         if hasattr(self.parent, 'particle_count_label'):
             particle_count = len(frame_points)

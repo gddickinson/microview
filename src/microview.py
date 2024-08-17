@@ -69,6 +69,8 @@ from console_operations import ConsoleOperations
 from menu_operations import MenuOperations
 from metadata_operations import MetadataOperations
 from point_data_manager import PointDataManager
+from point_management_console import PointManagementConsole
+
 
 #setup loggin
 logger = setup_logging()
@@ -111,6 +113,7 @@ class MicroView(QMainWindow):
         self.metadata_operations = MetadataOperations(self)
         self.point_data_manager = PointDataManager()
         self.point_data_manager.data_changed.connect(self.update_point_displays)
+        self.point_management_console = None
 
         self.in_spyder = get_ipython().__class__.__name__ == 'SpyderShell'
         self.filters = Filters(self)
@@ -521,26 +524,16 @@ class MicroView(QMainWindow):
         logger.info(f"Columns in DataFrame: {df.columns.tolist()}")
         logger.info(f"First few rows of DataFrame:\n{df.head()}")
 
-        # Ensure the DataFrame has the correct column names
-        if 'centroid-1' in df.columns and 'centroid-0' in df.columns:
-            df = df.rename(columns={'centroid-1': 'x', 'centroid-0': 'y'})
-            logger.info("Renamed 'centroid-1' to 'x' and 'centroid-0' to 'y'")
-
         self.particle_analysis_results = df
-        self.particle_analysis_operations.update_point_data_manager(df)
+        self.point_data_manager.clear_points()
+        self.point_data_manager.add_points(df)
 
         logger.info(f"Updated particle_analysis_results with {len(df)} particles")
-        logger.info(f"Columns in particle_analysis_results: {self.particle_analysis_results.columns.tolist()}")
+        logger.info(f"Columns in point_data_manager: {self.point_data_manager.data.columns.tolist()}")
 
         self.toggle_chart_button.setEnabled(True)
         self.toggle_centroids_button.setEnabled(True)
-
-        # Plot centroids if the toggle is checked
-        if self.toggle_centroids_button.isChecked():
-            self.particle_analysis_operations.plot_centroids(self.window_management.current_window)
-
         QMessageBox.information(self, "Analysis Complete", f"Found {len(df)} particles.")
-
 
     def show_results_chart(self):
         if not hasattr(self, 'results_chart_window'):
@@ -911,6 +904,13 @@ class MicroView(QMainWindow):
         window = ImageWindow(data, "Synthetic Data")
         self.window_management.add_window(window)
         self.set_current_window(window)
+
+    def open_point_management_console(self):
+        if self.point_management_console is None:
+            self.point_management_console = PointManagementConsole(self)
+            self.point_management_console.pointsChanged.connect(self.update_point_displays)
+        self.point_management_console.show()
+
 
     def update_point_displays(self):
         """Update all displays that show point data."""
