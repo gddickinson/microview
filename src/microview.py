@@ -8,9 +8,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QAction, QFileDialog,
                              QDockWidget, QListWidget, QPushButton, QVBoxLayout,
                              QWidget, QToolBar, QMenuBar, QMenu, QInputDialog,
                              QColorDialog, QMessageBox, QComboBox, QTableView,
-                             QLabel, QSplitter, QHBoxLayout)
+                             QLabel, QSplitter, QHBoxLayout, QShortcut)
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QKeySequence
 import pyqtgraph as pg
 import numpy as np
 import tifffile
@@ -68,6 +68,8 @@ from variable_management import VariableManagement
 from console_operations import ConsoleOperations
 from menu_operations import MenuOperations
 from metadata_operations import MetadataOperations
+from point_data_manager import PointDataManager
+from point_management_console import PointManagementConsole
 
 
 #setup loggin
@@ -99,8 +101,8 @@ class MicroView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.logger = LoggingOperations.setup_logging()
-        self.config_manager = ConfigManagement(self)
-        self.config_manager.load_config()
+        self.config_management = ConfigManagement(self)
+        self.config_management.load_config()
         self.ui_operations = UIOperations(self)
         self.plugin_management = PluginManagement(self)
         self.window_management = WindowManagementOperations(self)
@@ -109,18 +111,26 @@ class MicroView(QMainWindow):
         self.variable_management = VariableManagement(self)
         self.menu_operations = MenuOperations(self)
         self.metadata_operations = MetadataOperations(self)
+        self.point_data_manager = PointDataManager()
+        self.point_management_console = None
+
         self.in_spyder = get_ipython().__class__.__name__ == 'SpyderShell'
         self.filters = Filters(self)
         self.particle_analysis_results = None
         self.menu_manager = MenuManager(self)
         self.image_processor = ImageProcessor()
         self.file_loader = FileLoader()
+
         self.initUI()
         self.plugins = self.plugin_management.load_plugins()
         self.logger.info(f"Plugins loaded: {list(self.plugins.keys())}")
         self.plugin_management.update_plugin_list(self.pluginList)
         self.setupMenus()
         self.loadBuiltInOperations()
+
+        self.setup_key_bindings()
+        self.point_data_manager.data_changed.connect(self.update_point_displays)
+
 
     def initUI(self):
         self.setWindowTitle('MicroView Control Panel')
@@ -172,6 +182,55 @@ class MicroView(QMainWindow):
 
         self.show()
 
+    def setup_key_bindings(self):
+        self.create_point_shortcut = QShortcut(QKeySequence("C"), self)
+        self.create_point_shortcut.activated.connect(self.toggle_point_creation_mode)
+
+        self.delete_point_shortcut = QShortcut(QKeySequence("D"), self)
+        self.delete_point_shortcut.activated.connect(self.toggle_point_deletion_mode)
+
+        self.select_point_shortcut = QShortcut(QKeySequence("S"), self)
+        self.select_point_shortcut.activated.connect(self.toggle_point_selection_mode)
+
+    def toggle_point_creation_mode(self):
+        if self.point_management_console:
+            self.point_management_console.create_point_button.toggle()
+
+    def toggle_point_deletion_mode(self):
+        if self.point_management_console:
+            self.point_management_console.delete_point_button.toggle()
+
+    def toggle_point_selection_mode(self):
+        current_window = self.window_management.current_window
+        if current_window:
+            current_window.point_selection_mode = not current_window.point_selection_mode
+
+    def on_point_created(self, x, y):
+        logger.info(f"on_point_created called with coordinates: ({x}, {y})")
+        try:
+            current_window = self.window_management.current_window
+            if current_window:
+                frame = current_window.get_current_frame()
+                logger.info(f"Adding point at frame {frame}, coordinates: ({x}, {y})")
+                new_point = [[frame, x, y, 0, frame]]  # Using list-of-lists format
+                self.point_data_manager.add_points(new_point, window=current_window)
+                self.update_point_displays(frame)
+            else:
+                logger.warning("No current window available to add point")
+        except Exception as e:
+            logger.error(f"Error in on_point_created: {str(e)}")
+            logger.exception("Exception details:")
+
+
+    def on_point_deleted(self, point_id):
+        self.point_data_manager.remove_points([point_id])
+        self.update_point_displays()
+
+    def on_point_selected(self, point_id):
+        self.point_data_manager.select_points([point_id])
+        self.update_point_displays()
+
+
     def on_current_window_changed(self, window):
         if hasattr(self, 'info_panel'):
             self.info_panel.update_info(window)
@@ -188,6 +247,7 @@ class MicroView(QMainWindow):
         self.analysis_operations = AnalysisOperations(self)
         self.roi_operations = ROIOperations(self)
         self.particle_analysis_operations = ParticleAnalysisOperations(self)
+        self.scikit_analysis_console = ScikitAnalysisConsole
 
         logger.info("Built-in operations loaded")
 
@@ -225,14 +285,26 @@ class MicroView(QMainWindow):
         self.analysis_operations.findMaxima()
 
     def run_particle_analysis(self):
-        self.particle_analysis_operations.run_particle_analysis()
+        if self.window_management.current_window is None:
+            QMessageBox.warning(self, "No Image", "Please open an image first.")
+            return
+
+        try:
+            image = self.window_management.current_window.image
+            analysis_dialog = ParticleAnalysisResults(self, image)
+            analysis_dialog.analysisComplete.connect(self.on_particle_analysis_complete)
+            analysis_dialog.exec_()
+        except Exception as e:
+            print(f"Error in particle analysis: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error in particle analysis: {str(e)}")
+
 
     def toggle_results_chart(self, checked):
         self.particle_analysis_operations.toggle_results_chart(checked)
 
     def toggle_centroids(self, checked):
+        logger.info(f"MicroView toggle_centroids called with checked={checked}")
         self.particle_analysis_operations.toggle_centroids(checked)
-
 
     def colocalization_analysis(self):
         self.analysis_operations.colocalization_analysis()
@@ -274,10 +346,43 @@ class MicroView(QMainWindow):
         self.plugin_management.close_all_plugins()
 
     def save_config(self):
-        self.config_manager.save_config()
+        self.config_management.save_config()
 
     def set_current_window(self, window):
-        self.window_management.set_current_window(window)
+        logger.info("Setting current window")
+        if self.window_management.current_window:
+            logger.info("Disconnecting signals from old window")
+            self.safe_disconnect(self.window_management.current_window.imageView.scene.sigMouseMoved, self.update_mouse_position)
+            self.safe_disconnect(self.window_management.current_window.timeChanged, self.update_frame_info)
+            self.safe_disconnect(self.window_management.current_window.roiChanged, self.update_roi_info)
+            self.safe_disconnect(self.window_management.current_window.timeChanged, self.on_time_slider_changed)
+            self.safe_disconnect(self.window_management.current_window.pointCreated, self.on_point_created)
+            self.safe_disconnect(self.window_management.current_window.pointDeleted, self.on_point_deleted)
+            self.safe_disconnect(self.window_management.current_window.pointSelected, self.on_point_selected)
+            self.window_management.current_window.set_as_current(False)
+
+        self.window_management.current_window = window
+        self.window_management.current_window_changed.emit(window)
+
+        if window:
+            logger.info("Connecting signals to new window")
+            window.imageView.scene.sigMouseMoved.connect(self.update_mouse_position)
+            window.timeChanged.connect(self.update_frame_info)
+            window.roiChanged.connect(self.update_roi_info)
+            window.timeChanged.connect(self.on_time_slider_changed)
+            window.pointCreated.connect(self.on_point_created)
+            window.pointDeleted.connect(self.on_point_deleted)
+            window.pointSelected.connect(self.on_point_selected)
+            window.set_as_current(True)
+
+            logger.debug(f"pointCreated signal connected: {window.pointCreated.receivers(self.on_point_created) > 0}")
+            logger.debug(f"pointDeleted signal connected: {window.pointDeleted.receivers(self.on_point_deleted) > 0}")
+            logger.debug(f"pointSelected signal connected: {window.pointSelected.receivers(self.on_point_selected) > 0}")
+
+        self.update_frame_info(0)
+        self.update_roi_info(None)  # Clear ROI info when changing windows
+        logger.info("Current window set and signals connected")
+
 
     def add_window(self, window):
         return self.window_management.add_window(window)
@@ -319,9 +424,10 @@ class MicroView(QMainWindow):
         self.menu_manager.update_recent_files_menu()
 
     def on_time_slider_changed(self):
+        logger.info("Time slider changed")
         if self.window_management.current_window:
-            self.window_management.current_window.update_frame_info()
-
+            current_frame = self.window_management.current_window.get_current_frame()
+            self.update_point_displays(current_frame)
 
     def setupPluginDock(self):
         self.plugin_dock= QDockWidget("Plugins", self)
@@ -410,17 +516,16 @@ class MicroView(QMainWindow):
             pass
 
     def update_mouse_position(self, pos):
-        if self.window_manager.current_window:
-            image_pos = self.window_manager.current_window.imageView.getImageItem().mapFromScene(pos)
-            # ... rest of the method
+        if self.window_management.current_window:
+            image_pos = self.window_management.current_window.imageView.getImageItem().mapFromScene(pos)
             x, y = int(image_pos.x()), int(image_pos.y())
 
-            image = self.window_manager.current_window.image
+            image = self.window_management.current_window.image
 
             if image.ndim == 3:
                 if 0 <= x < image.shape[2] and 0 <= y < image.shape[1]:
                     self.info_panel.update_mouse_info(x, y)
-                    current_frame = self.window_manager.current_window.currentIndex
+                    current_frame = self.window_management.current_window.currentIndex
                     intensity = image[current_frame, y, x]
                     self.info_panel.update_intensity(intensity)
                     self.z_profile_widget.update_profile(image, x, y)
@@ -440,7 +545,7 @@ class MicroView(QMainWindow):
                     self.z_profile_widget.clear_profile()
 
     def update_roi_info(self, roi):
-        if roi is not None and self.window_manager.current_window:
+        if roi is not None and self.window_management.current_window:
             roi_data = roi.get_roi_data()
             self.roi_info_widget.update_roi_info(roi_data)
             self.roi_zoom_view.setImage(roi_data)
@@ -450,11 +555,10 @@ class MicroView(QMainWindow):
             self.roi_info_widget.update_roi_info(None)
             self.roi_zoom_view.clear()
 
-
     def update_frame_info(self, frame):
-        if self.window_manager.current_window:
-            self.info_panel.update_info(self.window_manager.current_window)
-            self.window_manager.current_window.update_status_bar()
+        if self.window_management.current_window:
+            self.info_panel.update_info(self.window_management.current_window)
+            self.window_management.current_window.update_status_bar()
 
     def get_plugins(self):
         return self.plugins
@@ -469,8 +573,8 @@ class MicroView(QMainWindow):
         pass
 
     def particleAnalysis(self):
-        if self.window_manager.current_window:
-            image = self.window_manager.current_window.image
+        if self.window_management.current_window:
+            image = self.window_management.current_window.image
             threshold = filters.threshold_otsu(image)
             binary = image > threshold
             labeled = measure.label(binary)
@@ -479,13 +583,21 @@ class MicroView(QMainWindow):
                 print(f"Area: {prop.area}, Centroid: {prop.centroid}")
 
     def on_particle_analysis_complete(self, df):
+        logger.info("Particle analysis complete")
+        logger.info(f"Received DataFrame with shape: {df.shape}")
+        logger.info(f"Columns in DataFrame: {df.columns.tolist()}")
+
         self.particle_analysis_results = df
-        print(f"Received particle analysis results with {len(df)} particles")  # Debug print
-        print(f"Columns in results: {df.columns}")  # Debug print
+        self.point_data_manager.clear_points()
+        self.point_data_manager.add_points(df, window=self.window_management.current_window)
+
+        logger.info(f"Updated particle_analysis_results with {len(df)} particles")
+        logger.info(f"Columns in point_data_manager: {self.point_data_manager.data.columns.tolist()}")
+
         self.toggle_chart_button.setEnabled(True)
         self.toggle_centroids_button.setEnabled(True)
+        self.update_point_displays()
         QMessageBox.information(self, "Analysis Complete", f"Found {len(df)} particles.")
-
 
     def show_results_chart(self):
         if not hasattr(self, 'results_chart_window'):
@@ -553,49 +665,49 @@ class MicroView(QMainWindow):
         if hasattr(self, 'results_chart_window'):
             self.results_chart_window.hide()
 
-    def remove_centroids(self, window):
-        if hasattr(window, 'centroid_items'):
-            for item in window.centroid_items:
-                window.get_view().removeItem(item)
-            window.centroid_items.clear()
+    # def remove_centroids(self, window):
+    #     if hasattr(window, 'point_items'):
+    #         for item in window.point_items:
+    #             window.get_view().removeItem(item)
+    #         window.point_items.clear()
 
-    def plot_centroids(self, window):
-        if not hasattr(window, 'centroid_items'):
-            window.centroid_items = []
+    # def plot_centroids(self, window):
+    #     if not hasattr(window, 'centroid_items'):
+    #         window.centroid_items = []
 
-        self.remove_centroids(window)  # Clear existing centroids
+    #     self.remove_centroids(window)  # Clear existing centroids
 
-        current_frame = window.get_current_frame()
-        frame_particles = self.particle_analysis_results[self.particle_analysis_results['frame'] == current_frame]
+    #     current_frame = window.get_current_frame()
+    #     frame_particles = self.particle_analysis_results[self.particle_analysis_results['frame'] == current_frame]
 
-        print(f"Plotting {len(frame_particles)} particles for frame {current_frame}")  # Debug print
+    #     print(f"Plotting {len(frame_particles)} particles for frame {current_frame}")  # Debug print
 
-        is_trackpy = 'particle' in self.particle_analysis_results.columns  # Check if trackpy was used
+    #     is_trackpy = 'particle' in self.particle_analysis_results.columns  # Check if trackpy was used
 
-        for _, row in frame_particles.iterrows():
-            color = pg.intColor(row['particle'], hues=50, alpha=120) if is_trackpy else pg.mkBrush(255, 0, 0, 120)
+    #     for _, row in frame_particles.iterrows():
+    #         color = pg.intColor(row['particle'], hues=50, alpha=120) if is_trackpy else pg.mkBrush(255, 0, 0, 120)
 
-            centroid = pg.ScatterPlotItem([row['centroid-1']], [row['centroid-0']], size=10, pen=pg.mkPen(None), brush=color)
-            window.get_view().addItem(centroid)
-            window.centroid_items.append(centroid)
+    #         centroid = pg.ScatterPlotItem([row['centroid-1']], [row['centroid-0']], size=10, pen=pg.mkPen(None), brush=color)
+    #         window.get_view().addItem(centroid)
+    #         window.centroid_items.append(centroid)
 
-            if is_trackpy:
-                # Add trajectory if trackpy was used
-                trajectory = self.particle_analysis_results[self.particle_analysis_results['particle'] == row['particle']]
-                trajectory = trajectory[trajectory['frame'] <= current_frame]  # Only show up to current frame
-                if len(trajectory) > 1:
-                    trajectory_item = pg.PlotDataItem(trajectory['centroid-1'], trajectory['centroid-0'], pen=color)
-                    window.get_view().addItem(trajectory_item)
-                    window.centroid_items.append(trajectory_item)
+    #         if is_trackpy:
+    #             # Add trajectory if trackpy was used
+    #             trajectory = self.particle_analysis_results[self.particle_analysis_results['particle'] == row['particle']]
+    #             trajectory = trajectory[trajectory['frame'] <= current_frame]  # Only show up to current frame
+    #             if len(trajectory) > 1:
+    #                 trajectory_item = pg.PlotDataItem(trajectory['centroid-1'], trajectory['centroid-0'], pen=color)
+    #                 window.get_view().addItem(trajectory_item)
+    #                 window.centroid_items.append(trajectory_item)
 
-        if hasattr(self, 'particle_count_label'):
-            particle_count = len(frame_particles)
-            self.particle_count_label.setText(f"Particles in frame: {particle_count}")
+    #     if hasattr(self, 'particle_count_label'):
+    #         particle_count = len(frame_particles)
+    #         self.particle_count_label.setText(f"Particles in frame: {particle_count}")
 
     def removeROI(self, roi):
-        if self.window_manager.current_window:
+        if self.window_management.current_window:
             try:
-                image_window = self.window_manager.current_window
+                image_window = self.window_management.current_window
                 image_view = image_window.imageView
                 image_window.getView().removeItem(roi)
                 image_window.rois.remove(roi)
@@ -665,7 +777,7 @@ class MicroView(QMainWindow):
                 roi_data = json.load(f)
 
             rois = []
-            current_window = self.window_manager.current_window
+            current_window = self.window_management.current_window
 
             if current_window is None:
                 logger.warning("No current window to add ROIs to.")
@@ -703,7 +815,7 @@ class MicroView(QMainWindow):
 
     def save_rois(self, filename):
         try:
-            current_window = self.window_manager.current_window
+            current_window = self.window_management.current_window
             if current_window is None or not hasattr(current_window, 'rois'):
                 logger.warning("No ROIs to save.")
                 return
@@ -728,7 +840,7 @@ class MicroView(QMainWindow):
     def add_flika_window(self, flika_window):
         self.flika_windows.append(flika_window)
         # Instead of adding the FlikaMicroViewWindow directly, we'll add its Flika window
-        self.window_manager.add_window(flika_window.flika_window)
+        self.window_management.add_window(flika_window.flika_window)
         # Connect Flika window signals to MicroView slots if needed
         flika_window.timeChanged.connect(self.on_time_slider_changed)
 
@@ -833,19 +945,19 @@ class MicroView(QMainWindow):
         print(f"Result in MicroView - Shape: {result.shape}, dtype: {result.dtype}")
         print(f"Result stats - Min: {np.min(result)}, Max: {np.max(result)}, Mean: {np.mean(result)}")
         window = ImageWindow(result, "Analysis Result")
-        self.window_manager.add_window(window)
+        self.window_management.add_window(window)
         self.set_current_window(window)
 
     def open_transformations_dialog(self):
-        if self.window_manager.current_window:
-            dialog = TransformationsDialog(self.window_manager.current_window.image, self)
+        if self.window_management.current_window:
+            dialog = TransformationsDialog(self.window_management.current_window.image, self)
             dialog.transformationApplied.connect(self.apply_transformation)
             dialog.exec_()
 
     def apply_transformation(self, transformed_data):
-        if self.window_manager.current_window:
-            self.window_manager.current_window.setImage(transformed_data)
-            self.info_panel.update_info(self.window_manager.current_window)
+        if self.window_management.current_window:
+            self.window_management.current_window.setImage(transformed_data)
+            self.info_panel.update_info(self.window_management.current_window)
 
     def open_synthetic_data_dialog(self):
         dialog = SyntheticDataDialog(self)
@@ -854,9 +966,52 @@ class MicroView(QMainWindow):
 
     def create_synthetic_data_window(self, data):
         window = ImageWindow(data, "Synthetic Data")
-        self.window_manager.add_window(window)
+        self.window_management.add_window(window)
         self.set_current_window(window)
 
+    def open_point_management_console(self):
+        if self.point_management_console is None:
+            self.point_management_console = PointManagementConsole(self)
+            self.point_management_console.pointsChanged.connect(self.update_point_displays)
+        self.point_management_console.show()
+
+
+    def update_point_displays(self, frame=None):
+        logger.info(f"Updating point displays for frame {frame}")
+        if self.window_management.current_window:
+            if frame is None:
+                frame = self.window_management.current_window.get_current_frame()
+            points_count = self.point_data_manager.plot_points(self.window_management.current_window, frame)
+            logger.info(f"Plotted {points_count} points")
+            if hasattr(self, 'particle_count_label'):
+                self.particle_count_label.setText(f"Particles in frame: {points_count}")
+        if self.point_management_console:
+            self.point_management_console.updateSelectionTable()
+
+
+    def plot_points(self, window, current_frame):
+        """Plot points on the current window."""
+        if not hasattr(window, 'point_items'):
+            window.point_items = []
+
+        # Clear existing points
+        for item in window.point_items:
+            window.get_view().removeItem(item)
+        window.point_items.clear()
+
+        # Get points for the current frame
+        frame_points = self.point_data_manager.get_points_in_frame(current_frame)
+
+        # Plot new points
+        for _, point in frame_points.iterrows():
+            point_item = pg.ScatterPlotItem([point['x']], [point['y']], size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 0, 0, 120))
+            window.get_view().addItem(point_item)
+            window.point_items.append(point_item)
+
+        # Update particle count label
+        if hasattr(self, 'particle_count_label'):
+            particle_count = len(frame_points)
+            self.particle_count_label.setText(f"Particles in frame: {particle_count}")
 
 
 # At the end of the file, after the MicroView class definition

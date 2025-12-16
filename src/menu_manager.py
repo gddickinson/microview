@@ -32,6 +32,8 @@ class MenuManager:
         self.create_filters_submenu()
         self.create_binary_submenu()
         self.create_stack_submenu()
+        self.add_action('process', 'Point Management Console', self.parent.open_point_management_console)
+
         # Add new items to the Process menu
         self.menus['process'].addSeparator()  # Add a separator for clarity
         self.add_action('process', 'Image Transformations', self.parent.open_transformations_dialog)

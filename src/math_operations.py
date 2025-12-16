@@ -6,10 +6,10 @@ class MathOperations:
         self.parent = parent
 
     def mathOperation(self, operation):
-        if self.parent.window_manager.current_window:
+        if self.parent.window_management.current_window:
             value, ok = QInputDialog.getDouble(self.parent, "Input", "Enter value:")
             if ok:
-                image = self.parent.window_manager.current_window.image
+                image = self.parent.window_management.current_window.image
                 original_dtype = image.dtype
 
                 # Convert image to float64 for calculations
@@ -38,7 +38,7 @@ class MathOperations:
                 # Convert back to the original dtype
                 result = result.astype(original_dtype)
 
-                self.parent.window_manager.current_window.setImage(result)
+                self.parent.window_management.current_window.setImage(result)
                 print(f"Applied {operation} operation with value {value}")
         else:
             QMessageBox.warning(self.parent, "Error", "No image window is currently active.")

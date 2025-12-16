@@ -3,32 +3,33 @@ from skimage import filters, measure
 from PyQt5.QtWidgets import QMessageBox
 from particle_analysis import ParticleAnalysisResults
 from scipy import stats
+import pyqtgraph as pg
 
 class AnalysisOperations:
     def __init__(self, parent):
         self.parent = parent
 
     def measure(self):
-        if self.parent.window_manager.current_window:
-            image = self.parent.window_manager.current_window.image
+        if self.parent.window_management.current_window:
+            image = self.parent.window_management.current_window.image
             print(f"Mean: {np.mean(image)}")
             print(f"Std Dev: {np.std(image)}")
             print(f"Min: {np.min(image)}")
             print(f"Max: {np.max(image)}")
 
     def findMaxima(self):
-        if self.parent.window_manager.current_window:
-            image = self.parent.window_manager.current_window.image
+        if self.parent.window_management.current_window:
+            image = self.parent.window_management.current_window.image
             local_max = filters.peak_local_max(image)
             print(f"Found {len(local_max)} local maxima")
 
     def run_particle_analysis(self):
-        if self.parent.window_manager.current_window is None:
+        if self.parent.window_management.current_window is None:
             QMessageBox.warning(self.parent, "No Image", "Please open an image first.")
             return
 
         try:
-            image = self.parent.window_manager.current_window.image
+            image = self.parent.window_management.current_window.image
             analysis_dialog = ParticleAnalysisResults(self.parent, image)
             analysis_dialog.analysisComplete.connect(self.parent.on_particle_analysis_complete)
             analysis_dialog.exec_()
@@ -38,9 +39,9 @@ class AnalysisOperations:
             QMessageBox.critical(self.parent, "Error", f"Error in particle analysis: {str(e)}")
 
     def colocalization_analysis(self):
-        if self.parent.window_manager.current_window and hasattr(self.parent.window_manager.current_window, 'rois') and len(self.parent.window_manager.current_window.rois) == 1:
-            roi = self.parent.window_manager.current_window.rois[0]
-            image_view = self.parent.window_manager.current_window
+        if self.parent.window_management.current_window and hasattr(self.parent.window_management.current_window, 'rois') and len(self.parent.window_management.current_window.rois) == 1:
+            roi = self.parent.window_management.current_window.rois[0]
+            image_view = self.parent.window_management.current_window
             image = image_view.getImageItem().image
 
             if image.ndim != 3 or image.shape[2] != 2:
@@ -69,8 +70,8 @@ class AnalysisOperations:
             print("Please select a single ROI for colocalization analysis")
 
     def open_analysis_console(self):
-        if self.parent.window_manager.current_window:
-            image = self.parent.window_manager.current_window.image
-            self.parent.analysis_console = self.parent.ScikitAnalysisConsole(image)
+        if self.parent.window_management.current_window:
+            image = self.parent.window_management.current_window.image
+            self.parent.analysis_console = self.parent.scikit_analysis_console(image)
             self.parent.analysis_console.analysisCompleted.connect(self.parent.display_analysis_result)
             self.parent.analysis_console.show()

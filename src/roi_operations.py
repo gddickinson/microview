@@ -7,18 +7,18 @@ class ROIOperations:
         self.parent = parent
 
     def addROI(self, roi_type):
-        if self.parent.window_manager.current_window:
+        if self.parent.window_management.current_window:
             try:
-                image_window = self.parent.window_manager.current_window
+                image_window = self.parent.window_management.current_window
                 roi = image_window.add_roi(roi_type)
                 print(f"ROI added to view: {roi}")
             except Exception as e:
                 print(f"Error adding ROI: {str(e)}")
 
     def removeAllROIs(self):
-        if self.parent.window_manager.current_window:
+        if self.parent.window_management.current_window:
             try:
-                image_window = self.parent.window_manager.current_window
+                image_window = self.parent.window_management.current_window
                 for roi in image_window.rois[:]:
                     image_window.remove_roi(roi)
                 print("All ROIs removed")
@@ -37,7 +37,7 @@ class ROIOperations:
 
     def save_rois(self, filename):
         try:
-            current_window = self.parent.window_manager.current_window
+            current_window = self.parent.window_management.current_window
             if current_window is None or not hasattr(current_window, 'rois'):
                 print("No ROIs to save.")
                 return
@@ -64,7 +64,7 @@ class ROIOperations:
                 roi_data = json.load(f)
 
             rois = []
-            current_window = self.parent.window_manager.current_window
+            current_window = self.parent.window_management.current_window
 
             if current_window is None:
                 print("No current window to add ROIs to.")

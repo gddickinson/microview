@@ -149,7 +149,7 @@ class FlikaCompatibleROI:
 
 def flika_open_file(microview_instance, filename):
     microview_instance.loadImage(filename)
-    current_window = microview_instance.window_manager.current_window
+    current_window = microview_instance.window_management.current_window
     return FlikaCompatibleWindow(current_window)
 
 def flika_open_rois(microview_instance, filename):

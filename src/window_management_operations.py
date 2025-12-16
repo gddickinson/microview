@@ -10,6 +10,7 @@ class WindowManagementOperations(QObject):
         self.parent = parent
         self.current_window = None
         self.windows = []
+        self.flika_windows = []
 
     def add_window(self, window):
         self.windows.append(window)
@@ -20,13 +21,22 @@ class WindowManagementOperations(QObject):
 
     def set_current_window(self, window):
         if self.current_window:
+            self.safe_disconnect(self.current_window.imageView.scene.sigMouseMoved, self.parent.update_mouse_position)
+            self.safe_disconnect(self.current_window.timeChanged, self.parent.on_time_slider_changed)
+            self.safe_disconnect(self.current_window.roiChanged, self.parent.update_roi_info)
             self.current_window.set_as_current(False)
+
         self.current_window = window
-        if window:
-            window.set_as_current(True)
-            window.show()  # Ensure the current window is displayed
-            window.raise_()  # Bring the window to the front
         self.current_window_changed.emit(window)
+
+        if window:
+            window.imageView.scene.sigMouseMoved.connect(self.parent.update_mouse_position)
+            window.timeChanged.connect(self.parent.on_time_slider_changed)
+            window.roiChanged.connect(self.parent.update_roi_info)
+            window.set_as_current(True)
+
+        self.parent.update_frame_info(0)
+        self.parent.update_roi_info(None)
 
     def close_current_window(self):
         if self.current_window:
