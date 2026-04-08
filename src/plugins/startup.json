@@ -1,0 +1,9 @@
+{
+    "enabled_plugins": [
+        "particle_analysis_plugin",
+        "flika_bridge_plugin",
+	"lightsheet_plugin",
+	"opencv_bio_analysis_plugin",
+	"fluorescence_analysis_plugin"
+    ]
+}

@@ -1,0 +1,7 @@
+numpy
+scipy
+PyQt5
+pyqtgraph
+scikit-image
+tifffile
+nd2reader
